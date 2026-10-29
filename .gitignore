@@ -1,28 +1,34 @@
-# Python virtual environments
-venv/
-.venv/
-env/
-
-# Python cache files
+cat > .gitignore <<'EOF'
+# Python
 __pycache__/
 *.py[cod]
+*.pyo
+.pytest_cache/
+.coverage
+
+# Virtual environments
+venv/
+.venv/
+backend/venv/
+backend/.venv/
 
 # Environment variables and secrets
 .env
 .env.*
+!.env.example
 
-# Django generated files
-staticfiles/
+# Django
+*.sqlite3
 media/
+staticfiles/
 
-# IDE settings
+# Node
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Editors and operating system
 .vscode/
 .idea/
-
-# Local database
-db.sqlite3
-
-# Test and coverage files
-.coverage
-htmlcov/
-.pytest_cache/
+.DS_Store
+EOF
