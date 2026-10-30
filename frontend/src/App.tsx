@@ -1,5 +1,6 @@
 
 import { useState } from "react";
+import MenuPage from "./pages/Menu";
 
 function App() {
   const [activePage, setActivePage] = useState("Dashboard");
@@ -15,8 +16,10 @@ function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-900">
+      {/* Sidebar */}
       <aside className="fixed inset-y-0 left-0 w-64 bg-slate-950 p-6 text-white">
         <h1 className="text-2xl font-bold">Qiosk Manager</h1>
+
         <p className="mt-2 text-sm text-slate-400">
           Restaurant Management
         </p>
@@ -38,10 +41,12 @@ function App() {
         </nav>
       </aside>
 
+      {/* Main content */}
       <main className="ml-64 p-8">
         <header className="flex items-center justify-between">
           <div>
             <h2 className="text-3xl font-bold">{activePage}</h2>
+
             <p className="mt-1 text-slate-500">
               Manage your restaurant from one place.
             </p>
@@ -52,7 +57,8 @@ function App() {
           </span>
         </header>
 
-        {activePage === "Dashboard" ? (
+        {/* Dashboard */}
+        {activePage === "Dashboard" && (
           <>
             <section className="mt-8 grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-4">
               {[
@@ -81,7 +87,10 @@ function App() {
                   key={stat.label}
                   className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm"
                 >
-                  <p className="text-sm text-slate-500">{stat.label}</p>
+                  <p className="text-sm text-slate-500">
+                    {stat.label}
+                  </p>
+
                   <p className={`mt-4 text-3xl font-bold ${stat.color}`}>
                     {stat.value}
                   </p>
@@ -91,21 +100,36 @@ function App() {
 
             <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
               <h3 className="text-lg font-semibold">Recent Orders</h3>
+
               <p className="mt-2 text-slate-500">
-                Orders will appear here when we connect the dashboard to Django.
+                Orders will appear here when we connect the dashboard
+                to Django.
               </p>
+
               <div className="mt-6 rounded-lg bg-slate-50 p-8 text-center text-slate-400">
                 No orders yet
               </div>
             </section>
           </>
-        ) : (
+        )}
+
+        {/* Menu Management */}
+        {activePage === "Menu" && (
+          <section className="mt-8">
+            <MenuPage />
+          </section>
+        )}
+
+        {/* Other pages */}
+        {!["Dashboard", "Menu"].includes(activePage) && (
           <section className="mt-8 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
             <h3 className="text-xl font-semibold">
               {activePage} Management
             </h3>
+
             <p className="mt-2 text-slate-500">
-              This section will be implemented in the next development steps.
+              This section will be implemented in the next development
+              steps.
             </p>
           </section>
         )}
