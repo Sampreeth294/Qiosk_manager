@@ -1,6 +1,8 @@
 
 import { useState } from "react";
 import MenuPage from "./pages/Menu";
+import Categories from "./pages/Categories";
+import Restaurants from "./pages/Restaurants";
 
 function App() {
   const [activePage, setActivePage] = useState("Dashboard");
