@@ -1,13 +1,18 @@
 
 from decimal import Decimal
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db import transaction
 from rest_framework import serializers
 
 from .models import (
     Restaurant,
+    RestaurantNotification,
+    RestaurantSetting,
     MenuCategory,
     MenuItem,
+    MenuVote,
+    FoodRating,
     Order,
     OrderItem,
 )
@@ -26,6 +31,29 @@ class RestaurantSerializer(serializers.ModelSerializer):
 # -------------------------
 # MENU CATEGORY SERIALIZER
 # -------------------------
+
+class RestaurantSettingSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RestaurantSetting
+        fields = "__all__"
+        read_only_fields = ["id", "updated_at"]
+
+    def validate_timezone(self, value):
+        try:
+            ZoneInfo(value)
+        except ZoneInfoNotFoundError as exc:
+            raise serializers.ValidationError(
+                "Enter a valid IANA timezone, such as Asia/Kolkata."
+            ) from exc
+        return value
+
+
+class RestaurantNotificationSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RestaurantNotification
+        fields = "__all__"
+        read_only_fields = ["id", "created_at"]
+
 
 class MenuCategorySerializer(serializers.ModelSerializer):
     class Meta:
@@ -60,6 +88,58 @@ class MenuItemSerializer(serializers.ModelSerializer):
 # -------------------------
 # ORDER ITEM SERIALIZER
 # -------------------------
+
+class MenuVoteSerializer(serializers.ModelSerializer):
+    menu_item_name = serializers.CharField(
+        source="menu_item.name",
+        read_only=True,
+    )
+    restaurant_name = serializers.CharField(
+        source="restaurant.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = MenuVote
+        fields = [
+            "id",
+            "restaurant",
+            "restaurant_name",
+            "menu_item",
+            "menu_item_name",
+            "user",
+            "vote_date",
+            "created_at",
+        ]
+        read_only_fields = fields
+
+
+class FoodRatingSerializer(serializers.ModelSerializer):
+    menu_item_name = serializers.CharField(
+        source="menu_item.name",
+        read_only=True,
+    )
+    restaurant_name = serializers.CharField(
+        source="restaurant.name",
+        read_only=True,
+    )
+
+    class Meta:
+        model = FoodRating
+        fields = [
+            "id",
+            "restaurant",
+            "restaurant_name",
+            "order",
+            "menu_item",
+            "menu_item_name",
+            "user",
+            "rating",
+            "comment",
+            "created_at",
+        ]
+        read_only_fields = fields
+
 
 class OrderItemSerializer(serializers.ModelSerializer):
     class Meta:

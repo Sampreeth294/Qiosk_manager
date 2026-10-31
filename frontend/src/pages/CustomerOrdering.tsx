@@ -1,15 +1,49 @@
 
-import { useMemo, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type FormEvent,
+} from "react";
+import { apiRequest } from "../api/apiClient";
+
+type Restaurant = {
+  id: number;
+  name: string;
+  is_active: boolean;
+};
+
+type MenuCategory = {
+  id: number;
+  name: string;
+  restaurant: number;
+  is_active: boolean;
+};
+
+type ApiMenuItem = {
+  id: number;
+  name: string;
+  description: string;
+  category: number;
+  price: string | number;
+  image_url: string | null;
+  is_active: boolean;
+};
 
 type MenuItem = {
   id: number;
   name: string;
   category: string;
+  categoryId: number;
   description: string;
   price: number;
-  emoji: string;
-  popular?: boolean;
-  available: boolean;
+  imageUrl: string | null;
+};
+
+type CreatedOrder = {
+  order_number: string;
+  total_amount: string | number;
 };
 
 type CartItem = {
@@ -17,123 +51,113 @@ type CartItem = {
   quantity: number;
 };
 
-const menuItems: MenuItem[] = [
-  {
-    id: 1,
-    name: "Masala Dosa",
-    category: "South Indian",
-    description: "Crispy dosa filled with spiced potato masala.",
-    price: 100,
-    emoji: "🥞",
-    popular: true,
-    available: true,
-  },
-  {
-    id: 2,
-    name: "Idli Vada",
-    category: "South Indian",
-    description: "Soft steamed idlis with crispy vada and chutney.",
-    price: 60,
-    emoji: "🍘",
-    available: true,
-  },
-  {
-    id: 3,
-    name: "Paneer Butter Masala",
-    category: "North Indian",
-    description: "Paneer in a creamy tomato and butter gravy.",
-    price: 200,
-    emoji: "🍛",
-    popular: true,
-    available: true,
-  },
-  {
-    id: 4,
-    name: "Butter Naan",
-    category: "North Indian",
-    description: "Soft naan brushed with butter.",
-    price: 40,
-    emoji: "🫓",
-    available: true,
-  },
-  {
-    id: 5,
-    name: "Veg Fried Rice",
-    category: "Chinese",
-    description: "Wok-tossed rice with fresh vegetables.",
-    price: 150,
-    emoji: "🍚",
-    popular: true,
-    available: true,
-  },
-  {
-    id: 6,
-    name: "Gobi Manchurian",
-    category: "Chinese",
-    description: "Crispy cauliflower tossed in Indo-Chinese sauce.",
-    price: 130,
-    emoji: "🥦",
-    available: true,
-  },
-  {
-    id: 7,
-    name: "Veg Biryani",
-    category: "Rice & Biryani",
-    description: "Aromatic basmati rice with vegetables and spices.",
-    price: 160,
-    emoji: "🍲",
-    popular: true,
-    available: true,
-  },
-  {
-    id: 8,
-    name: "Filter Coffee",
-    category: "Beverages",
-    description: "Traditional South Indian filter coffee.",
-    price: 35,
-    emoji: "☕",
-    available: true,
-  },
-  {
-    id: 9,
-    name: "Fresh Lime Soda",
-    category: "Beverages",
-    description: "Refreshing lime drink served chilled.",
-    price: 50,
-    emoji: "🍋",
-    available: true,
-  },
-];
-
-const categories = [
-  "All Items",
-  ...Array.from(new Set(menuItems.map((item) => item.category))),
-];
-
 const formatPrice = (price: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
-    maximumFractionDigits: 0,
+    maximumFractionDigits: 2,
   }).format(price);
 
 export default function CustomerOrdering() {
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [categories, setCategories] = useState<MenuCategory[]>([]);
+  const [apiMenuItems, setApiMenuItems] = useState<ApiMenuItem[]>([]);
+  const [restaurantId, setRestaurantId] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("All Items");
   const [search, setSearch] = useState("");
   const [cart, setCart] = useState<CartItem[]>([]);
-  const [customerName, setCustomerName] = useState("");
   const [orderType, setOrderType] = useState<"Dine-in" | "Takeaway">(
     "Dine-in",
   );
   const [tableNumber, setTableNumber] = useState("1");
   const [showCheckout, setShowCheckout] = useState(false);
-  const [confirmation, setConfirmation] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [loadError, setLoadError] = useState("");
+  const [checkoutError, setCheckoutError] = useState("");
+  const [orderNumber, setOrderNumber] = useState("");
+
+  const loadCatalog = useCallback(async () => {
+    try {
+      const [restaurantData, categoryData, menuData] = await Promise.all([
+        apiRequest<Restaurant[]>("/restaurants/"),
+        apiRequest<MenuCategory[]>("/categories/"),
+        apiRequest<ApiMenuItem[]>("/menu-items/"),
+      ]);
+
+      const activeRestaurants = restaurantData.filter(
+        (restaurant) => restaurant.is_active,
+      );
+      setRestaurants(activeRestaurants);
+      setCategories(categoryData.filter((category) => category.is_active));
+      setApiMenuItems(menuData.filter((item) => item.is_active));
+      setRestaurantId((currentId) =>
+        activeRestaurants.some(
+          (restaurant) => String(restaurant.id) === currentId,
+        )
+          ? currentId
+          : String(activeRestaurants[0]?.id ?? ""),
+      );
+    } catch (error) {
+      setLoadError(
+        error instanceof Error
+          ? error.message
+          : "Unable to load the restaurant menu.",
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void Promise.resolve().then(loadCatalog);
+  }, [loadCatalog]);
+
+  const selectedRestaurantId = Number(restaurantId);
+  const restaurantCategories = useMemo(
+    () =>
+      categories.filter(
+        (category) => category.restaurant === selectedRestaurantId,
+      ),
+    [categories, selectedRestaurantId],
+  );
+  const products = useMemo<MenuItem[]>(() => {
+    const categoryMap = new Map(
+      restaurantCategories.map((category) => [category.id, category]),
+    );
+
+    return apiMenuItems.flatMap((item) => {
+      const category = categoryMap.get(item.category);
+
+      return category
+        ? [{
+            id: item.id,
+            name: item.name,
+            category: category.name,
+            categoryId: category.id,
+            description: item.description,
+            price: Number(item.price),
+            imageUrl: item.image_url,
+          }]
+        : [];
+    });
+  }, [apiMenuItems, restaurantCategories]);
+  const categoryOptions = useMemo(
+    () => [
+      { id: "All Items", name: "All Items" },
+      ...restaurantCategories.map((category) => ({
+        id: String(category.id),
+        name: category.name,
+      })),
+    ],
+    [restaurantCategories],
+  );
 
   const filteredItems = useMemo(() => {
-    return menuItems.filter((item) => {
+    return products.filter((item) => {
       const matchesCategory =
         selectedCategory === "All Items" ||
-        item.category === selectedCategory;
+        String(item.categoryId) === selectedCategory;
 
       const query = search.trim().toLowerCase();
 
@@ -142,9 +166,9 @@ export default function CustomerOrdering() {
         item.description.toLowerCase().includes(query) ||
         item.category.toLowerCase().includes(query);
 
-      return matchesCategory && matchesSearch && item.available;
+      return matchesCategory && matchesSearch;
     });
-  }, [selectedCategory, search]);
+  }, [products, selectedCategory, search]);
 
   const cartCount = cart.reduce(
     (total, cartItem) => total + cartItem.quantity,
@@ -157,17 +181,22 @@ export default function CustomerOrdering() {
     0,
   );
 
-  // Illustrative 5% tax for this frontend demo.
-  const tax = Math.round(subtotal * 0.05);
-  const total = subtotal + tax;
+  const total = subtotal;
 
   function addToCart(item: MenuItem) {
+    const existing = cart.find((cartItem) => cartItem.item.id === item.id);
+
+    if (existing && existing.quantity >= 99) {
+      setCheckoutError("You can order up to 99 of each menu item.");
+      return;
+    }
+
     setCart((previous) => {
-      const existing = previous.find(
+      const currentItem = previous.find(
         (cartItem) => cartItem.item.id === item.id,
       );
 
-      if (existing) {
+      if (currentItem) {
         return previous.map((cartItem) =>
           cartItem.item.id === item.id
             ? { ...cartItem, quantity: cartItem.quantity + 1 }
@@ -178,10 +207,20 @@ export default function CustomerOrdering() {
       return [...previous, { item, quantity: 1 }];
     });
 
-    setConfirmation("");
+    setCheckoutError("");
+    setOrderNumber("");
   }
 
   function changeQuantity(itemId: number, change: number) {
+    const currentItem = cart.find(
+      (cartItem) => cartItem.item.id === itemId,
+    );
+
+    if (change > 0 && currentItem && currentItem.quantity >= 99) {
+      setCheckoutError("You can order up to 99 of each menu item.");
+      return;
+    }
+
     setCart((previous) =>
       previous
         .map((cartItem) =>
@@ -195,24 +234,71 @@ export default function CustomerOrdering() {
         .filter((cartItem) => cartItem.quantity > 0),
     );
 
-    setConfirmation("");
+    setCheckoutError("");
+    setOrderNumber("");
   }
 
-  function placeDemoOrder(event: React.FormEvent<HTMLFormElement>) {
+  function changeRestaurant(value: string) {
+    setRestaurantId(value);
+    setSelectedCategory("All Items");
+    setCart([]);
+    setCheckoutError("");
+    setOrderNumber("");
+  }
+
+  async function placeOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (cart.length === 0) return;
+    if (submitting) return;
 
-    // Demo only: no order is sent to the backend.
-    const demoOrderNumber = `DEMO-${Date.now().toString().slice(-6)}`;
+    if (!restaurantId || restaurants.length === 0) {
+      setCheckoutError("Please select an active restaurant.");
+      return;
+    }
 
-    setConfirmation(
-      `Demo order ${demoOrderNumber} created on this page. No real order was submitted.`,
-    );
+    if (cart.length === 0) {
+      setCheckoutError("Add at least one menu item before placing an order.");
+      return;
+    }
 
-    setCart([]);
-    setShowCheckout(false);
-    setCustomerName("");
+    if (orderType === "Dine-in" && !tableNumber.trim()) {
+      setCheckoutError("Please select a table number for dine-in.");
+      return;
+    }
+
+    setSubmitting(true);
+    setCheckoutError("");
+
+    try {
+      const order = await apiRequest<CreatedOrder>("/orders/create/", {
+        method: "POST",
+        body: JSON.stringify({
+          restaurant: selectedRestaurantId,
+          order_type: orderType === "Dine-in" ? "DINE_IN" : "TAKEAWAY",
+          table_number: orderType === "Dine-in" ? tableNumber.trim() : "",
+          items: cart.map(({ item, quantity }) => ({
+            menu_item: item.id,
+            quantity,
+          })),
+        }),
+      });
+
+      if (!order.order_number) {
+        throw new Error("The server did not return an order number.");
+      }
+
+      setOrderNumber(order.order_number);
+      setCart([]);
+      setShowCheckout(false);
+    } catch (error) {
+      setCheckoutError(
+        error instanceof Error
+          ? error.message
+          : "Unable to submit your order. Please try again.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
@@ -225,7 +311,11 @@ export default function CustomerOrdering() {
               Q
             </div>
             <div>
-              <h1 className="text-lg font-bold">Qiosk Restaurant</h1>
+              <h1 className="text-lg font-bold">
+                {restaurants.find(
+                  (restaurant) => restaurant.id === selectedRestaurantId,
+                )?.name ?? "Qiosk Ordering"}
+              </h1>
               <p className="text-xs text-slate-500">
                 Fresh food, made with care
               </p>
@@ -234,8 +324,12 @@ export default function CustomerOrdering() {
 
           <button
             type="button"
-            onClick={() => setShowCheckout(true)}
-            className="relative flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700"
+            onClick={() => {
+              setCheckoutError("");
+              setShowCheckout(true);
+            }}
+            disabled={cart.length === 0 || !restaurantId || loading}
+            className="relative flex items-center gap-2 rounded-xl bg-indigo-600 px-4 py-3 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
           >
             <span aria-hidden="true">🛒</span>
             <span>My Cart</span>
@@ -247,11 +341,31 @@ export default function CustomerOrdering() {
       </header>
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
-        {/* Demo notice */}
-        <div className="mb-6 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          Preview mode — menu and prices are sample data. Orders are not sent
-          to the restaurant.
+        <div className="mb-6 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
+          Menu availability and prices are loaded from the restaurant. Payment
+          is not collected through this kiosk.
         </div>
+
+        {loadError && (
+          <div
+            role="alert"
+            className="mb-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800"
+          >
+            <span>{loadError}</span>
+            <button
+              type="button"
+              onClick={() => {
+                setLoading(true);
+                setLoadError("");
+                void loadCatalog();
+              }}
+              disabled={loading}
+              className="font-semibold underline disabled:opacity-50"
+            >
+              Retry
+            </button>
+          </div>
+        )}
 
         {/* Welcome banner */}
         <section className="overflow-hidden rounded-3xl bg-gradient-to-r from-indigo-700 to-violet-600 p-6 text-white sm:p-10">
@@ -297,36 +411,79 @@ export default function CustomerOrdering() {
               </p>
             </div>
 
-            <input
-              type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search food or category..."
-              aria-label="Search menu"
-              className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100 sm:max-w-sm"
-            />
+            <div className="flex w-full flex-col gap-3 sm:max-w-sm">
+              {restaurants.length > 1 && (
+                <label className="text-sm font-medium text-slate-700">
+                  Choose a restaurant
+                  <select
+                    value={restaurantId}
+                    onChange={(event) => changeRestaurant(event.target.value)}
+                    disabled={loading || submitting}
+                    className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm"
+                  >
+                    {restaurants.map((restaurant) => (
+                      <option key={restaurant.id} value={restaurant.id}>
+                        {restaurant.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search food or category..."
+                aria-label="Search menu"
+                className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none transition focus:border-indigo-500 focus:ring-2 focus:ring-indigo-100"
+              />
+            </div>
           </div>
 
           {/* Category navigation */}
-          <div className="mt-6 flex gap-2 overflow-x-auto pb-2">
-            {categories.map((category) => (
-              <button
-                key={category}
-                type="button"
-                onClick={() => setSelectedCategory(category)}
-                className={`shrink-0 rounded-full px-4 py-2.5 text-sm font-medium transition ${
-                  selectedCategory === category
-                    ? "bg-indigo-600 text-white"
-                    : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
-                }`}
-              >
-                {category}
-              </button>
-            ))}
-          </div>
+          {!loading && restaurantCategories.length > 0 && (
+            <div className="mt-6 flex gap-2 overflow-x-auto pb-2">
+              {categoryOptions.map((category) => (
+                <button
+                  key={category.id}
+                  type="button"
+                  onClick={() => setSelectedCategory(category.id)}
+                  className={`shrink-0 rounded-full px-4 py-2.5 text-sm font-medium transition ${
+                    selectedCategory === category.id
+                      ? "bg-indigo-600 text-white"
+                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
+                  }`}
+                >
+                  {category.name}
+                </button>
+              ))}
+            </div>
+          )}
 
           {/* Menu grid */}
-          {filteredItems.length === 0 ? (
+          {loading ? (
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+              Loading restaurant menu...
+            </div>
+          ) : loadError ? (
+            <div className="mt-6 rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
+              Menu could not be loaded.
+            </div>
+          ) : restaurants.length === 0 ? (
+            <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
+              <p className="text-lg font-semibold">No active restaurants</p>
+              <p className="mt-2 text-sm text-slate-500">
+                Please check back when a restaurant is available.
+              </p>
+            </div>
+          ) : !loadError && products.length === 0 ? (
+            <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
+              <p className="text-lg font-semibold">Menu not available</p>
+              <p className="mt-2 text-sm text-slate-500">
+                This restaurant has no available menu items right now.
+              </p>
+            </div>
+          ) : !loadError && filteredItems.length === 0 ? (
             <div className="mt-6 rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
               <p className="text-lg font-semibold">No items found</p>
               <p className="mt-2 text-sm text-slate-500">
@@ -341,13 +498,18 @@ export default function CustomerOrdering() {
                   className="group overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm transition hover:-translate-y-1 hover:shadow-md"
                 >
                   <div className="relative flex h-40 items-center justify-center bg-gradient-to-br from-orange-50 to-amber-100">
-                    <span className="text-7xl transition group-hover:scale-110">
-                      {item.emoji}
-                    </span>
-
-                    {item.popular && (
-                      <span className="absolute left-3 top-3 rounded-full bg-white px-3 py-1 text-xs font-semibold text-orange-700 shadow-sm">
-                        ★ Popular
+                    {item.imageUrl ? (
+                      <img
+                        src={item.imageUrl}
+                        alt={item.name}
+                        className="h-full w-full object-cover transition group-hover:scale-105"
+                      />
+                    ) : (
+                      <span
+                        className="text-7xl transition group-hover:scale-110"
+                        aria-hidden="true"
+                      >
+                        🍽️
                       </span>
                     )}
                   </div>
@@ -375,7 +537,8 @@ export default function CustomerOrdering() {
                     <button
                       type="button"
                       onClick={() => addToCart(item)}
-                      className="mt-4 w-full rounded-xl border border-indigo-600 px-4 py-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-600 hover:text-white"
+                      disabled={submitting}
+                      className="mt-4 w-full rounded-xl border border-indigo-600 px-4 py-3 text-sm font-semibold text-indigo-700 transition hover:bg-indigo-600 hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
                     >
                       + Add to Cart
                     </button>
@@ -400,7 +563,8 @@ export default function CustomerOrdering() {
               <button
                 type="button"
                 onClick={() => setCart([])}
-                className="text-sm font-medium text-rose-600 hover:text-rose-700"
+                disabled={submitting}
+                className="text-sm font-medium text-rose-600 hover:text-rose-700 disabled:opacity-50"
               >
                 Clear Cart
               </button>
@@ -426,9 +590,17 @@ export default function CustomerOrdering() {
                     className="flex flex-wrap items-center justify-between gap-4 py-4"
                   >
                     <div className="flex min-w-0 items-center gap-3">
-                      <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-2xl">
-                        {item.emoji}
-                      </span>
+                      {item.imageUrl ? (
+                        <img
+                          src={item.imageUrl}
+                          alt=""
+                          className="h-12 w-12 shrink-0 rounded-xl object-cover"
+                        />
+                      ) : (
+                        <span className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-orange-50 text-2xl">
+                          🍽️
+                        </span>
+                      )}
                       <div>
                         <p className="font-medium text-slate-800">
                           {item.name}
@@ -445,7 +617,8 @@ export default function CustomerOrdering() {
                           type="button"
                           aria-label={`Remove one ${item.name}`}
                           onClick={() => changeQuantity(item.id, -1)}
-                          className="h-8 w-8 rounded-lg text-lg hover:bg-slate-100"
+                          disabled={submitting}
+                          className="h-8 w-8 rounded-lg text-lg hover:bg-slate-100 disabled:opacity-50"
                         >
                           −
                         </button>
@@ -458,11 +631,28 @@ export default function CustomerOrdering() {
                           type="button"
                           aria-label={`Add one ${item.name}`}
                           onClick={() => changeQuantity(item.id, 1)}
-                          className="h-8 w-8 rounded-lg text-lg hover:bg-slate-100"
+                          disabled={submitting}
+                          className="h-8 w-8 rounded-lg text-lg hover:bg-slate-100 disabled:opacity-50"
                         >
                           +
                         </button>
                       </div>
+
+                      <button
+                        type="button"
+                        aria-label={`Remove ${item.name} from cart`}
+                        onClick={() =>
+                          setCart((previous) =>
+                            previous.filter(
+                              (cartItem) => cartItem.item.id !== item.id,
+                            ),
+                          )
+                        }
+                        disabled={submitting}
+                        className="text-sm font-medium text-rose-600 hover:text-rose-700 disabled:opacity-50"
+                      >
+                        Remove
+                      </button>
 
                       <p className="w-20 text-right font-semibold">
                         {formatPrice(item.price * quantity)}
@@ -473,16 +663,6 @@ export default function CustomerOrdering() {
               </div>
 
               <div className="mt-5 space-y-3 border-t border-slate-100 pt-5">
-                <div className="flex justify-between text-sm text-slate-600">
-                  <span>Subtotal</span>
-                  <span>{formatPrice(subtotal)}</span>
-                </div>
-
-                <div className="flex justify-between text-sm text-slate-600">
-                  <span>Estimated tax (5% demo rate)</span>
-                  <span>{formatPrice(tax)}</span>
-                </div>
-
                 <div className="flex justify-between border-t border-slate-100 pt-4 text-lg font-bold">
                   <span>Total</span>
                   <span>{formatPrice(total)}</span>
@@ -491,21 +671,48 @@ export default function CustomerOrdering() {
 
               <button
                 type="button"
-                onClick={() => setShowCheckout(true)}
-                className="mt-6 w-full rounded-xl bg-indigo-600 px-5 py-4 text-sm font-semibold text-white transition hover:bg-indigo-700"
+                onClick={() => {
+                  setCheckoutError("");
+                  setShowCheckout(true);
+                }}
+                disabled={!restaurantId || loading || submitting}
+                className="mt-6 w-full rounded-xl bg-indigo-600 px-5 py-4 text-sm font-semibold text-white transition hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 Continue to Checkout →
               </button>
             </>
           )}
 
-          {confirmation && (
+          {checkoutError && !showCheckout && (
             <p
+              role="alert"
+              className="mt-5 rounded-xl bg-rose-50 p-4 text-sm text-rose-800"
+            >
+              {checkoutError}
+            </p>
+          )}
+
+          {orderNumber && (
+            <div
               role="status"
               className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800"
             >
-              {confirmation}
-            </p>
+              <p className="font-semibold">
+                Order {orderNumber} was placed successfully.
+              </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setOrderNumber("");
+                  document.getElementById("menu-items")?.scrollIntoView({
+                    behavior: "smooth",
+                  });
+                }}
+                className="mt-3 font-semibold underline"
+              >
+                Continue browsing
+              </button>
+            </div>
           )}
         </section>
       </main>
@@ -515,7 +722,7 @@ export default function CustomerOrdering() {
         <div
           className="fixed inset-0 z-50 flex items-end justify-center bg-slate-950/50 p-0 sm:items-center sm:p-4"
           onClick={(event) => {
-            if (event.target === event.currentTarget) {
+            if (event.target === event.currentTarget && !submitting) {
               setShowCheckout(false);
             }
           }}
@@ -542,8 +749,9 @@ export default function CustomerOrdering() {
               <button
                 type="button"
                 onClick={() => setShowCheckout(false)}
+                disabled={submitting}
                 aria-label="Close checkout"
-                className="rounded-xl px-3 py-2 text-xl text-slate-500 hover:bg-slate-100"
+                className="rounded-xl px-3 py-2 text-xl text-slate-500 hover:bg-slate-100 disabled:opacity-50"
               >
                 ×
               </button>
@@ -563,26 +771,7 @@ export default function CustomerOrdering() {
                 </button>
               </div>
             ) : (
-              <form onSubmit={placeDemoOrder} className="mt-6 space-y-5">
-                <div>
-                  <label
-                    htmlFor="customer-name"
-                    className="text-sm font-medium text-slate-700"
-                  >
-                    Customer Name
-                  </label>
-                  <input
-                    id="customer-name"
-                    required
-                    value={customerName}
-                    onChange={(event) =>
-                      setCustomerName(event.target.value)
-                    }
-                    placeholder="Enter your name"
-                    className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-indigo-500"
-                  />
-                </div>
-
+              <form onSubmit={placeOrder} className="mt-6 space-y-5">
                 <div>
                   <p className="text-sm font-medium text-slate-700">
                     Order Type
@@ -594,7 +783,8 @@ export default function CustomerOrdering() {
                         key={type}
                         type="button"
                         onClick={() => setOrderType(type)}
-                        className={`rounded-xl border p-3 text-sm font-medium ${
+                        disabled={submitting}
+                        className={`rounded-xl border p-3 text-sm font-medium disabled:opacity-50 ${
                           orderType === type
                             ? "border-indigo-600 bg-indigo-50 text-indigo-700"
                             : "border-slate-200 text-slate-600"
@@ -637,25 +827,30 @@ export default function CustomerOrdering() {
                     <span>{formatPrice(subtotal)}</span>
                   </div>
                   <div className="mt-3 flex justify-between font-bold">
-                    <span>Estimated Total</span>
+                    <span>Total</span>
                     <span>{formatPrice(total)}</span>
                   </div>
-                  <p className="mt-2 text-xs text-slate-500">
-                    Tax is illustrative and may not reflect the applicable tax
-                    treatment.
-                  </p>
                 </div>
+
+                {checkoutError && (
+                  <p
+                    role="alert"
+                    className="rounded-xl bg-rose-50 p-4 text-sm text-rose-800"
+                  >
+                    {checkoutError}
+                  </p>
+                )}
 
                 <button
                   type="submit"
-                  className="w-full rounded-xl bg-indigo-600 px-5 py-4 text-sm font-semibold text-white hover:bg-indigo-700"
+                  disabled={submitting || loading || !restaurantId || cart.length === 0}
+                  className="w-full rounded-xl bg-indigo-600 px-5 py-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  Place Demo Order
+                  {submitting ? "Submitting..." : "Place Order"}
                 </button>
 
                 <p className="text-center text-xs text-slate-500">
-                  Demo only. No payment will be collected and no real order
-                  will be submitted.
+                  Payment is not collected through this kiosk.
                 </p>
               </form>
             )}

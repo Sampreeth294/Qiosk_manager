@@ -1,7 +1,6 @@
 
 import { useCallback, useEffect, useState } from "react";
-
-const API = "http://127.0.0.1:8001/api";
+import { apiRequest } from "../api/apiClient";
 
 interface Restaurant {
   id: number;
@@ -47,17 +46,10 @@ export default function Categories() {
     setError("");
 
     try {
-      const [categoryRes, restaurantRes] = await Promise.all([
-        fetch(`${API}/categories/?include_inactive=true`),
-        fetch(`${API}/restaurants/`),
+      const [categoryData, restaurantData] = await Promise.all([
+        apiRequest<Category[]>("/categories/?include_inactive=true"),
+        apiRequest<Restaurant[]>("/restaurants/?include_inactive=true"),
       ]);
-
-      if (!categoryRes.ok || !restaurantRes.ok) {
-        throw new Error("Failed to load categories or restaurants.");
-      }
-
-      const categoryData: Category[] = await categoryRes.json();
-      const restaurantData: Restaurant[] = await restaurantRes.json();
 
       setCategories(categoryData);
       setRestaurants(restaurantData);
@@ -76,17 +68,10 @@ export default function Categories() {
 
     async function fetchInitialData() {
       try {
-        const [categoryRes, restaurantRes] = await Promise.all([
-          fetch(`${API}/categories/?include_inactive=true`),
-          fetch(`${API}/restaurants/`),
+        const [categoryData, restaurantData] = await Promise.all([
+          apiRequest<Category[]>("/categories/?include_inactive=true"),
+          apiRequest<Restaurant[]>("/restaurants/?include_inactive=true"),
         ]);
-
-        if (!categoryRes.ok || !restaurantRes.ok) {
-          throw new Error("Failed to load categories or restaurants.");
-        }
-
-        const categoryData: Category[] = await categoryRes.json();
-        const restaurantData: Restaurant[] = await restaurantRes.json();
 
         if (cancelled) return;
 
@@ -160,22 +145,13 @@ export default function Categories() {
 
     try {
       const url = editingId
-        ? `${API}/categories/${editingId}/update/`
-        : `${API}/categories/create/`;
+        ? `/categories/${editingId}/update/`
+        : "/categories/create/";
 
-      const response = await fetch(url, {
+      await apiRequest<Category>(url, {
         method: editingId ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
       });
-
-      const result = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          result ? JSON.stringify(result) : "Unable to save category."
-        );
-      }
 
       setMessage(
         editingId
@@ -199,20 +175,15 @@ export default function Categories() {
     setMessage("");
 
     try {
-      const response = await fetch(
-        `${API}/categories/${category.id}/update/`,
+      await apiRequest<Category>(
+        `/categories/${category.id}/update/`,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
             is_active: !category.is_active,
           }),
-        }
+        },
       );
-
-      if (!response.ok) {
-        throw new Error("Unable to update category status.");
-      }
 
       setMessage(
         `${category.name} ${

@@ -1,7 +1,6 @@
 
 import { useEffect, useState, type FormEvent } from "react";
-
-const API_BASE_URL = "http://127.0.0.1:8001/api";
+import { apiRequest } from "../api/apiClient";
 
 interface Category {
   id: number;
@@ -47,18 +46,10 @@ function Menu() {
     setError("");
 
     try {
-      const [itemsResponse, categoriesResponse] = await Promise.all([
-        fetch(`${API_BASE_URL}/menu-items/?include_inactive=true`),
-        fetch(`${API_BASE_URL}/categories/`),
+      const [itemsData, categoriesData] = await Promise.all([
+        apiRequest<MenuItem[]>("/menu-items/?include_inactive=true"),
+        apiRequest<Category[]>("/categories/?include_inactive=true"),
       ]);
-
-      if (!itemsResponse.ok || !categoriesResponse.ok) {
-        throw new Error("Failed to load menu data.");
-      }
-
-      const itemsData: MenuItem[] = await itemsResponse.json();
-      const categoriesData: Category[] =
-        await categoriesResponse.json();
 
       setItems(itemsData);
       setCategories(categoriesData);
@@ -77,18 +68,10 @@ function Menu() {
 
     async function fetchInitialData() {
       try {
-        const [itemsResponse, categoriesResponse] = await Promise.all([
-          fetch(`${API_BASE_URL}/menu-items/?include_inactive=true`),
-          fetch(`${API_BASE_URL}/categories/`),
+        const [itemsData, categoriesData] = await Promise.all([
+          apiRequest<MenuItem[]>("/menu-items/?include_inactive=true"),
+          apiRequest<Category[]>("/categories/?include_inactive=true"),
         ]);
-
-        if (!itemsResponse.ok || !categoriesResponse.ok) {
-          throw new Error("Failed to load menu data.");
-        }
-
-        const itemsData: MenuItem[] = await itemsResponse.json();
-        const categoriesData: Category[] =
-          await categoriesResponse.json();
 
         if (cancelled) return;
 
@@ -218,32 +201,13 @@ function Menu() {
 
     try {
       const url = itemBeingEdited
-        ? `${API_BASE_URL}/menu-items/${itemBeingEdited.id}/update/`
-        : `${API_BASE_URL}/menu-items/create/`;
+        ? `/menu-items/${itemBeingEdited.id}/update/`
+        : "/menu-items/create/";
 
-      const response = await fetch(url, {
+      await apiRequest<MenuItem>(url, {
         method: itemBeingEdited ? "PATCH" : "POST",
         body: formData,
       });
-
-      const responseData = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        const message =
-          responseData && typeof responseData === "object"
-            ? Object.entries(responseData)
-                .map(([field, messages]) => {
-                  const detail = Array.isArray(messages)
-                    ? messages.join(", ")
-                    : String(messages);
-
-                  return `${field}: ${detail}`;
-                })
-                .join(" | ")
-            : "Failed to save the menu item.";
-
-        throw new Error(message);
-      }
 
       resetForm();
       setShowForm(false);
@@ -273,29 +237,15 @@ function Menu() {
     setUpdatingAvailability(item.id);
 
     try {
-      const response = await fetch(
-        `${API_BASE_URL}/menu-items/${item.id}/update/`,
+      await apiRequest<MenuItem>(
+        `/menu-items/${item.id}/update/`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
           body: JSON.stringify({
             is_active: !item.is_active,
           }),
-        }
+        },
       );
-
-      const responseData = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        const message =
-          responseData && typeof responseData === "object"
-            ? JSON.stringify(responseData)
-            : "Failed to update availability.";
-
-        throw new Error(message);
-      }
 
       setSuccess(
         `${item.name} is now ${

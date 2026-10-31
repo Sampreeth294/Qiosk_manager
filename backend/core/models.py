@@ -1,7 +1,10 @@
 
 import uuid
 
+from django.conf import settings
 from django.db import models
+from django.db.models import F, Q
+from django.core.validators import MaxValueValidator, MinValueValidator
 
 
 # -------------------------
@@ -19,6 +22,442 @@ class Restaurant(models.Model):
         return self.name
 
 
+class RestaurantMembership(models.Model):
+    class Role(models.TextChoices):
+        STAFF = "STAFF", "Staff"
+        MANAGER = "MANAGER", "Manager"
+
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="restaurant_memberships",
+    )
+    restaurant = models.ForeignKey(
+        Restaurant,
+        on_delete=models.CASCADE,
+        related_name="memberships",
+    )
+    role = models.CharField(
+        max_length=10,
+        choices=Role.choices,
+        default=Role.STAFF,
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["user", "restaurant"],
+                name="unique_user_restaurant_membership",
+            ),
+            models.CheckConstraint(
+                condition=models.Q(role__in=["STAFF", "MANAGER"]),
+                name="valid_restaurant_membership_role",
+            ),
+        ]
+        ordering = ["restaurant__name", "user__username"]
+
+    def __str__(self):
+        return f"{self.user} - {self.restaurant} ({self.role})"
+
+
+class RestaurantSetting(models.Model):
+    restaurant = models.OneToOneField(
+        Restaurant,
+        on_delete=models.CASCADE,
+        related_name="settings",
+    )
+    restaurant_name = models.CharField(max_length=120, blank=True)
+    contact_email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    address = models.TextField(blank=True)
+    currency = models.CharField(max_length=10, default="INR")
+    timezone = models.CharField(max_length=64, default="UTC")
+    auto_accept_orders = models.BooleanField(default=True)
+    allow_customer_cancellation = models.BooleanField(default=True)
+    order_notifications = models.BooleanField(default=True)
+    low_stock_notifications = models.BooleanField(default=True)
+    email_notifications = models.BooleanField(default=False)
+    sound_alerts = models.BooleanField(default=True)
+    menu_voting_enabled = models.BooleanField(default=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Settings for {self.restaurant.name}"
+
+
+class RestaurantNotification(models.Model):
+    class EventType(models.TextChoices):
+        ORDER = "ORDER", "Order"
+        LOW_STOCK = "LOW_STOCK", "Low Stock"
+        REPORT = "REPORT", "Report"
+
+    restaurant = models.ForeignKey(
+        Restaurant,
+        on_delete=models.CASCADE,
+        related_name="notifications",
+    )
+    event_type = models.CharField(
+        max_length=24,
+        choices=EventType.choices,
+        default=EventType.ORDER,
+    )
+    title = models.CharField(max_length=200)
+    message = models.TextField()
+    reference_id = models.IntegerField(blank=True, null=True)
+    is_read = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.title} ({self.restaurant})"
+
+
+class Supplier(models.Model):
+    restaurant = models.ForeignKey(
+        Restaurant,
+        on_delete=models.CASCADE,
+        related_name="suppliers",
+    )
+    name = models.CharField(max_length=120)
+    contact_name = models.CharField(max_length=120, blank=True)
+    email = models.EmailField(blank=True)
+    phone = models.CharField(max_length=30, blank=True)
+    category = models.CharField(max_length=100, blank=True)
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["restaurant", "name"],
+                name="unique_supplier_name_per_restaurant",
+            ),
+        ]
+        ordering = ["name"]
+
+    def __str__(self):
+        return self.name
+
+
+class Ingredient(models.Model):
+    class Unit(models.TextChoices):
+        KILOGRAM = "kg", "Kilograms (kg)"
+        GRAM = "g", "Grams (g)"
+        LITER = "L", "Liters (L)"
+        MILLILITER = "ml", "Milliliters (ml)"
+        EACH = "each", "Each"
+
+    restaurant = models.ForeignKey(
+        Restaurant,
+        on_delete=models.CASCADE,
+        related_name="ingredients",
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.SET_NULL,
+        related_name="ingredients",
+        blank=True,
+        null=True,
+    )
+    name = models.CharField(max_length=120)
+    sku = models.CharField(max_length=64, blank=True)
+    description = models.TextField(blank=True)
+    category = models.CharField(max_length=100, blank=True)
+    unit = models.CharField(max_length=8, choices=Unit.choices)
+    current_quantity = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+    minimum_quantity = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+    unit_cost = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+    is_active = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["restaurant", "name"],
+                name="unique_ingredient_name_per_restaurant",
+            ),
+            models.UniqueConstraint(
+                fields=["restaurant", "sku"],
+                condition=~Q(sku=""),
+                name="unique_ingredient_sku_per_restaurant",
+            ),
+            models.CheckConstraint(
+                condition=Q(current_quantity__gte=0),
+                name="ingredient_stock_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(minimum_quantity__gte=0),
+                name="ingredient_minimum_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_cost__gte=0),
+                name="ingredient_unit_cost_nonnegative",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["restaurant", "is_active"],
+                name="ingredient_rest_active_idx",
+            ),
+        ]
+        ordering = ["name"]
+
+    @property
+    def is_low_stock(self):
+        return self.current_quantity <= self.minimum_quantity
+
+    def __str__(self):
+        return f"{self.name} ({self.restaurant})"
+
+
+class PurchaseOrder(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = "DRAFT", "Draft"
+        PENDING = "PENDING", "Pending"
+        APPROVED = "APPROVED", "Approved"
+        PARTIALLY_RECEIVED = "PARTIALLY_RECEIVED", "Partially received"
+        RECEIVED = "RECEIVED", "Received"
+        CANCELLED = "CANCELLED", "Cancelled"
+
+    order_number = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+    )
+    restaurant = models.ForeignKey(
+        Restaurant,
+        on_delete=models.PROTECT,
+        related_name="purchase_orders",
+    )
+    supplier = models.ForeignKey(
+        Supplier,
+        on_delete=models.PROTECT,
+        related_name="purchase_orders",
+    )
+    status = models.CharField(
+        max_length=24,
+        choices=Status.choices,
+        default=Status.DRAFT,
+    )
+    order_date = models.DateField()
+    expected_date = models.DateField(blank=True, null=True)
+    notes = models.TextField(blank=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="created_purchase_orders",
+        blank=True,
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+        indexes = [
+            models.Index(
+                fields=["restaurant", "status", "-created_at"],
+                name="purchase_rest_status_idx",
+            ),
+        ]
+
+    def __str__(self):
+        return str(self.order_number)
+
+
+class PurchaseOrderLine(models.Model):
+    purchase_order = models.ForeignKey(
+        PurchaseOrder,
+        on_delete=models.CASCADE,
+        related_name="lines",
+    )
+    ingredient = models.ForeignKey(
+        Ingredient,
+        on_delete=models.PROTECT,
+        related_name="purchase_order_lines",
+    )
+    ordered_quantity = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        validators=[MinValueValidator(0)],
+    )
+    received_quantity = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+        default=0,
+        validators=[MinValueValidator(0)],
+    )
+    unit_price = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(0)],
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["purchase_order", "ingredient"],
+                name="unique_ingredient_per_purchase_order",
+            ),
+            models.CheckConstraint(
+                condition=Q(ordered_quantity__gt=0),
+                name="purchase_line_quantity_positive",
+            ),
+            models.CheckConstraint(
+                condition=Q(received_quantity__gte=0)
+                & Q(received_quantity__lte=F("ordered_quantity")),
+                name="purchase_line_received_within_ordered",
+            ),
+            models.CheckConstraint(
+                condition=Q(unit_price__gte=0),
+                name="purchase_line_unit_price_nonnegative",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.ingredient.name} x {self.ordered_quantity}"
+
+
+class StockMovement(models.Model):
+    class MovementType(models.TextChoices):
+        RECEIPT = "RECEIPT", "Receipt"
+        CONSUMPTION = "CONSUMPTION", "Consumption"
+        ADJUSTMENT = "ADJUSTMENT", "Adjustment"
+        WASTAGE = "WASTAGE", "Wastage"
+
+    ingredient = models.ForeignKey(
+        Ingredient,
+        on_delete=models.PROTECT,
+        related_name="stock_movements",
+    )
+    purchase_order_line = models.ForeignKey(
+        PurchaseOrderLine,
+        on_delete=models.PROTECT,
+        related_name="stock_movements",
+        blank=True,
+        null=True,
+    )
+    order = models.ForeignKey(
+        "Order",
+        on_delete=models.SET_NULL,
+        related_name="stock_movements",
+        blank=True,
+        null=True,
+    )
+    movement_type = models.CharField(
+        max_length=12,
+        choices=MovementType.choices,
+    )
+    quantity_delta = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+    )
+    quantity_before = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+    )
+    quantity_after = models.DecimalField(
+        max_digits=12,
+        decimal_places=3,
+    )
+    reason = models.TextField()
+    reference = models.CharField(max_length=120, blank=True)
+    idempotency_key = models.UUIDField(blank=True, null=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="stock_movements",
+        blank=True,
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(quantity_delta__gt=0)
+                | Q(quantity_delta__lt=0),
+                name="stock_movement_delta_nonzero",
+            ),
+            models.CheckConstraint(
+                condition=Q(quantity_before__gte=0)
+                & Q(quantity_after__gte=0),
+                name="stock_movement_snapshots_nonnegative",
+            ),
+            models.CheckConstraint(
+                condition=Q(
+                    quantity_after=F("quantity_before") + F("quantity_delta")
+                ),
+                name="stock_movement_snapshot_arithmetic",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(
+                        movement_type="RECEIPT",
+                        quantity_delta__gt=0,
+                    )
+                    | Q(
+                        movement_type="CONSUMPTION",
+                        quantity_delta__lt=0,
+                    )
+                    | Q(
+                        movement_type="WASTAGE",
+                        quantity_delta__lt=0,
+                    )
+                    | Q(
+                        movement_type="ADJUSTMENT",
+                        quantity_delta__gt=0,
+                    )
+                    | Q(
+                        movement_type="ADJUSTMENT",
+                        quantity_delta__lt=0,
+                    )
+                ),
+                name="stock_movement_type_matches_delta",
+            ),
+            models.UniqueConstraint(
+                fields=["idempotency_key"],
+                condition=Q(idempotency_key__isnull=False),
+                name="unique_stock_movement_idempotency_key",
+            ),
+        ]
+        indexes = [
+            models.Index(
+                fields=["ingredient", "-created_at"],
+                name="stock_move_ing_time_idx",
+            ),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.movement_type}: {self.ingredient} {self.quantity_delta}"
+
+    def save(self, *args, **kwargs):
+        if self.pk and StockMovement.objects.filter(pk=self.pk).exists():
+            raise ValueError("Stock movements are immutable.")
+        super().save(*args, **kwargs)
 # -------------------------
 # MENU CATEGORY
 # -------------------------
@@ -191,3 +630,99 @@ class OrderItem(models.Model):
         # Calculate the subtotal from the stored unit price.
         self.subtotal = self.unit_price * self.quantity
         super().save(*args, **kwargs)
+
+
+class MenuVote(models.Model):
+    restaurant = models.ForeignKey(
+        Restaurant,
+        on_delete=models.CASCADE,
+        related_name="menu_votes",
+    )
+    menu_item = models.ForeignKey(
+        MenuItem,
+        on_delete=models.CASCADE,
+        related_name="votes",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="menu_votes",
+        blank=True,
+        null=True,
+    )
+    anonymous_key = models.CharField(
+        max_length=64,
+        blank=True,
+        null=True,
+    )
+    vote_date = models.DateField()
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["restaurant", "user", "vote_date"],
+                condition=Q(user__isnull=False),
+                name="unique_user_vote_per_restaurant_day",
+            ),
+            models.UniqueConstraint(
+                fields=["restaurant", "anonymous_key", "vote_date"],
+                condition=Q(anonymous_key__isnull=False),
+                name="unique_anonymous_vote_per_restaurant_day",
+            ),
+            models.CheckConstraint(
+                condition=(
+                    Q(user__isnull=False, anonymous_key__isnull=True)
+                    | Q(user__isnull=True, anonymous_key__isnull=False)
+                ),
+                name="menu_vote_has_single_voter_identity",
+            ),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user} voted for {self.menu_item}"
+
+
+class FoodRating(models.Model):
+    restaurant = models.ForeignKey(
+        Restaurant,
+        on_delete=models.CASCADE,
+        related_name="food_ratings",
+    )
+    order = models.ForeignKey(
+        Order,
+        on_delete=models.CASCADE,
+        related_name="food_ratings",
+    )
+    menu_item = models.ForeignKey(
+        MenuItem,
+        on_delete=models.CASCADE,
+        related_name="food_ratings",
+    )
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="food_ratings",
+    )
+    rating = models.PositiveSmallIntegerField(
+        validators=[MinValueValidator(1), MaxValueValidator(5)],
+    )
+    comment = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["order", "user"],
+                name="unique_food_rating_per_user_order",
+            ),
+            models.CheckConstraint(
+                condition=Q(rating__gte=1) & Q(rating__lte=5),
+                name="food_rating_range",
+            ),
+        ]
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.user} rated {self.menu_item} {self.rating}/5"

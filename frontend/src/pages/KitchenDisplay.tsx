@@ -1,9 +1,6 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-
-const API_URL = "http://127.0.0.1:8001/api";
-
-const WS_URL = "ws://127.0.0.1:8001/ws/orders/";
+import { apiRequest } from "../api/apiClient";
 
 type ApiStatus =
   | "PENDING"
@@ -124,13 +121,7 @@ export default function KitchenDisplay() {
     if (showLoading) setLoading(true);
 
     try {
-      const response = await fetch(`${API_URL}/orders/`);
-
-      if (!response.ok) {
-        throw new Error(`Could not fetch orders (${response.status}).`);
-      }
-
-      const data: ApiOrder[] = await response.json();
+      const data = await apiRequest<ApiOrder[]>("/orders/");
 
       if (!Array.isArray(data)) {
         throw new Error("Unexpected orders response from the server.");
@@ -150,75 +141,102 @@ export default function KitchenDisplay() {
   }, []);
 
   useEffect(() => {
-  let socket: WebSocket | null = null;
-  let reconnectTimer: number | undefined;
-  let disposed = false;
+    let disposed = false;
+    let activeConnections = 0;
+    const sockets = new Set<WebSocket>();
+    const timers = new Set<number>();
 
-  function connect() {
-    if (disposed) return;
+    function connect(restaurantId: number) {
+      if (disposed) return;
+      const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+      const socket = new WebSocket(
+        `${scheme}//${window.location.host}/ws/orders/?restaurant_id=${restaurantId}`,
+      );
+      sockets.add(socket);
 
-    socket = new WebSocket(WS_URL);
+      socket.onopen = () => {
+        activeConnections += 1;
+        setWsConnected(activeConnections > 0);
+      };
 
-    socket.onopen = () => {
-      setWsConnected(true);
-    };
+      socket.onmessage = (message: MessageEvent) => {
+        try {
+          const event = JSON.parse(message.data) as {
+            event: string;
+            order: ApiOrder;
+          };
 
-    socket.onmessage = (message: MessageEvent) => {
-      try {
-        const event = JSON.parse(message.data) as {
-          event: string;
-          order: ApiOrder;
-        };
+          if (
+            (event.event === "order.created" ||
+              event.event === "order.updated") &&
+            event.order
+          ) {
+            const updatedOrder = mapOrder(event.order);
+
+            setOrders((previousOrders) => {
+              const exists = previousOrders.some(
+                (order) => order.id === updatedOrder.id,
+              );
+
+              if (exists) {
+                return previousOrders.map((order) =>
+                  order.id === updatedOrder.id ? updatedOrder : order,
+                );
+              }
+
+              return [updatedOrder, ...previousOrders];
+            });
+          }
+        } catch (error) {
+          console.error("Invalid WebSocket message:", error);
+        }
+      };
+
+      socket.onclose = (event) => {
+        sockets.delete(socket);
+        if (event.wasClean && activeConnections > 0) {
+          activeConnections -= 1;
+        }
+        setWsConnected(activeConnections > 0);
 
         if (
-          (event.event === "order.created" ||
-            event.event === "order.updated") &&
-          event.order
+          !disposed &&
+          event.code !== 4401 &&
+          event.code !== 4403 &&
+          event.code !== 1008
         ) {
-          const updatedOrder = mapOrder(event.order);
-
-          setOrders((previousOrders) => {
-            const exists = previousOrders.some(
-              (order) => order.id === updatedOrder.id,
-            );
-
-            if (exists) {
-              return previousOrders.map((order) =>
-                order.id === updatedOrder.id
-                  ? updatedOrder
-                  : order,
-              );
-            }
-
-            return [updatedOrder, ...previousOrders];
-          });
+          const timer = window.setTimeout(
+            () => connect(restaurantId),
+            3000,
+          );
+          timers.add(timer);
         }
-      } catch (error) {
-        console.error("Invalid WebSocket message:", error);
-      }
+      };
+
+      socket.onerror = () => socket.close();
+    }
+
+    void apiRequest<{ id: number }[]>("/restaurants/?include_inactive=true")
+      .then((restaurants) => {
+        if (!disposed) restaurants.forEach(({ id }) => connect(id));
+      })
+      .catch((requestError: unknown) => {
+        if (!disposed) {
+          setError(
+            requestError instanceof Error
+              ? requestError.message
+              : "Unable to load restaurant access for live orders.",
+          );
+        }
+      });
+
+    return () => {
+      disposed = true;
+      timers.forEach(window.clearTimeout);
+      sockets.forEach((socket) => socket.close());
+      sockets.clear();
     };
-
-    socket.onclose = () => {
-      setWsConnected(false);
-
-      if (!disposed) {
-        reconnectTimer = window.setTimeout(connect, 3000);
-      }
-    };
-
-    socket.onerror = () => {
-      socket?.close();
-    };
-  }
-
-  connect();
-
-  return () => {
-    disposed = true;
-    window.clearTimeout(reconnectTimer);
-    socket?.close();
-  };
-}, []);
+  }, []);
 
 useEffect(() => {
   const timeoutId = window.setTimeout(() => {
@@ -277,22 +295,10 @@ useEffect(() => {
     setError("");
 
     try {
-      const response = await fetch(
-        `${API_URL}/orders/${order.id}/status/`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ status: nextStatus }),
-        },
-      );
-
-      const result = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          result?.error || `Status update failed (${response.status}).`,
-        );
-      }
+      await apiRequest(`/orders/${order.id}/status/`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: nextStatus }),
+      });
 
       // Refresh from the server so the database remains the source of truth.
       await fetchOrders();

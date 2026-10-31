@@ -1,7 +1,6 @@
 
 import { useCallback, useEffect, useState } from "react";
-
-const API = "http://127.0.0.1:8001/api";
+import { apiRequest } from "../api/apiClient";
 
 interface Restaurant {
   id: number;
@@ -56,15 +55,9 @@ export default function Restaurants() {
     setError("");
 
     try {
-      const response = await fetch(
-        `${API}/restaurants/?include_inactive=true`,
+      const data = await apiRequest<Restaurant[]>(
+        "/restaurants/?include_inactive=true",
       );
-
-      if (!response.ok) {
-        throw new Error("Unable to load restaurants.");
-      }
-
-      const data: Restaurant[] = await response.json();
       setRestaurants(data);
     } catch (err) {
       setError(
@@ -83,15 +76,9 @@ export default function Restaurants() {
 
     async function fetchInitialRestaurants() {
       try {
-        const response = await fetch(
-          `${API}/restaurants/?include_inactive=true`,
+        const data = await apiRequest<Restaurant[]>(
+          "/restaurants/?include_inactive=true",
         );
-
-        if (!response.ok) {
-          throw new Error("Unable to load restaurants.");
-        }
-
-        const data: Restaurant[] = await response.json();
 
         if (!cancelled) {
           setRestaurants(data);
@@ -146,26 +133,13 @@ export default function Restaurants() {
 
     try {
       const url = editingId !== null
-        ? `${API}/restaurants/${editingId}/update/`
-        : `${API}/restaurants/create/`;
+        ? `/restaurants/${editingId}/update/`
+        : "/restaurants/create/";
 
-      const response = await fetch(url, {
+      await apiRequest<Restaurant>(url, {
         method: editingId !== null ? "PATCH" : "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify(payload),
       });
-
-      const result = await response.json().catch(() => null);
-
-      if (!response.ok) {
-        throw new Error(
-          result
-            ? JSON.stringify(result)
-            : "Unable to save restaurant.",
-        );
-      }
 
       setMessage(
         editingId !== null
@@ -191,22 +165,15 @@ export default function Restaurants() {
     setMessage("");
 
     try {
-      const response = await fetch(
-        `${API}/restaurants/${restaurant.id}/update/`,
+      await apiRequest<Restaurant>(
+        `/restaurants/${restaurant.id}/update/`,
         {
           method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-          },
           body: JSON.stringify({
             is_active: !restaurant.is_active,
           }),
         },
       );
-
-      if (!response.ok) {
-        throw new Error("Unable to change restaurant status.");
-      }
 
       setMessage(
         `${restaurant.name} ${

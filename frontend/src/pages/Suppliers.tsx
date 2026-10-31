@@ -1,68 +1,24 @@
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { apiRequest } from "../api/apiClient";
 
 type Supplier = {
   id: number;
+  restaurant: number;
   name: string;
-  contact: string;
+  contact_name: string;
   email: string;
   phone: string;
   category: string;
-  status: "Active" | "Inactive";
+  is_active: boolean;
 };
 
-const initialSuppliers: Supplier[] = [
-  {
-    id: 1,
-    name: "Fresh Farm Supplies",
-    contact: "Rahul Sharma",
-    email: "freshfarm@example.com",
-    phone: "9876543210",
-    category: "Vegetables & Dairy",
-    status: "Active",
-  },
-  {
-    id: 2,
-    name: "Daily Needs Co.",
-    contact: "Priya Kumar",
-    email: "dailyneeds@example.com",
-    phone: "9876543211",
-    category: "Grains & Essentials",
-    status: "Active",
-  },
-  {
-    id: 3,
-    name: "Green Basket",
-    contact: "Arun Kumar",
-    email: "greenbasket@example.com",
-    phone: "9876543212",
-    category: "Vegetables",
-    status: "Active",
-  },
-  {
-    id: 4,
-    name: "Morning Dairy",
-    contact: "Sneha Rao",
-    email: "morningdairy@example.com",
-    phone: "9876543213",
-    category: "Dairy",
-    status: "Inactive",
-  },
-  {
-    id: 5,
-    name: "Spice Route",
-    contact: "Vijay Patel",
-    email: "spiceroute@example.com",
-    phone: "9876543214",
-    category: "Spices",
-    status: "Active",
-  },
-];
+type Restaurant = { id: number; name: string };
 
 const emptyForm = {
   name: "",
-  contact: "",
+  contact_name: "",
   email: "",
   phone: "",
   category: "Vegetables",
@@ -73,7 +29,9 @@ const inputClass =
 
 export default function Suppliers() {
   const [suppliers, setSuppliers] =
-    useState<Supplier[]>(initialSuppliers);
+    useState<Supplier[]>([]);
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [restaurantId, setRestaurantId] = useState("");
 
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState("All");
@@ -81,9 +39,53 @@ export default function Suppliers() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
   const [form, setForm] = useState(emptyForm);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    apiRequest<Restaurant[]>("/restaurants/?include_inactive=true")
+      .then((data) => {
+        setRestaurants(data);
+        if (data.length > 0) setRestaurantId(String(data[0].id));
+        else setLoading(false);
+      })
+      .catch((error: unknown) => {
+        setNotice(error instanceof Error ? error.message : "Unable to load restaurants.");
+        setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!restaurantId) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+
+      setLoading(true);
+      apiRequest<Supplier[]>(
+        `/suppliers/?restaurant_id=${encodeURIComponent(restaurantId)}&include_inactive=true`,
+      )
+        .then((data) => {
+          if (!cancelled) setSuppliers(data);
+        })
+        .catch((error: unknown) => {
+          if (!cancelled) {
+            setNotice(error instanceof Error ? error.message : "Unable to load suppliers.");
+          }
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [restaurantId]);
 
   const activeCount = suppliers.filter(
-    (supplier) => supplier.status === "Active"
+    (supplier) => supplier.is_active
   ).length;
 
   const inactiveCount = suppliers.length - activeCount;
@@ -92,7 +94,7 @@ export default function Suppliers() {
     return suppliers.filter((supplier) => {
       const searchText = [
         supplier.name,
-        supplier.contact,
+        supplier.contact_name,
         supplier.email,
         supplier.phone,
         supplier.category,
@@ -104,7 +106,7 @@ export default function Suppliers() {
 
       const matchesStatus =
         statusFilter === "All" ||
-        supplier.status === statusFilter;
+        supplier.is_active === (statusFilter === "Active");
 
       return matchesSearch && matchesStatus;
     });
@@ -122,7 +124,7 @@ export default function Suppliers() {
 
     setForm({
       name: supplier.name,
-      contact: supplier.contact,
+      contact_name: supplier.contact_name,
       email: supplier.email,
       phone: supplier.phone,
       category: supplier.category,
@@ -132,54 +134,46 @@ export default function Suppliers() {
     setShowForm(true);
   }
 
-  function saveSupplier(event: FormEvent<HTMLFormElement>) {
+  async function saveSupplier(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const name = form.name.trim();
-    const contact = form.contact.trim();
+    const contact = form.contact_name.trim();
     const email = form.email.trim();
     const phone = form.phone.trim();
 
-    if (!name || !contact || !email || !phone) {
+    if (!name || !restaurantId || !email || !phone) {
       setNotice("Please complete all required fields.");
       return;
     }
 
-    const duplicate = suppliers.some(
-      (supplier) =>
-        supplier.name.toLowerCase() === name.toLowerCase() &&
-        supplier.id !== editingId
-    );
-
-    if (duplicate) {
-      setNotice("A supplier with this name already exists.");
-      return;
-    }
-
-    if (editingId !== null) {
-      setSuppliers((current) =>
-        current.map((supplier) =>
-          supplier.id === editingId
-            ? { ...supplier, ...form, name, contact, email, phone }
-            : supplier
-        )
-      );
-
-      setNotice("Supplier updated successfully.");
-    } else {
-      const newSupplier: Supplier = {
-        id:
-          Math.max(0, ...suppliers.map((supplier) => supplier.id)) + 1,
+    try {
+      const payload = {
+        restaurant: Number(restaurantId),
         name,
-        contact,
+        contact_name: contact,
         email,
         phone,
         category: form.category,
-        status: "Active",
       };
-
-      setSuppliers((current) => [...current, newSupplier]);
-      setNotice("Supplier added successfully.");
+      if (editingId !== null) {
+        await apiRequest<Supplier>(`/suppliers/${editingId}/`, {
+          method: "PATCH",
+          body: JSON.stringify(payload),
+        });
+      } else {
+        await apiRequest<Supplier>("/suppliers/", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+      }
+      const refreshed = await apiRequest<Supplier[]>(
+        `/suppliers/?restaurant_id=${encodeURIComponent(restaurantId)}&include_inactive=true`,
+      );
+      setSuppliers(refreshed);
+      setNotice(editingId === null ? "Supplier added successfully." : "Supplier updated successfully.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to save supplier.");
     }
 
     setShowForm(false);
@@ -187,20 +181,24 @@ export default function Suppliers() {
     setForm(emptyForm);
   }
 
-  function toggleStatus(id: number) {
-    setSuppliers((current) =>
-      current.map((supplier) =>
-        supplier.id === id
-          ? {
-              ...supplier,
-              status:
-                supplier.status === "Active" ? "Inactive" : "Active",
-            }
-          : supplier
-      )
-    );
-
-    setNotice("Supplier status updated.");
+  async function toggleStatus(supplier: Supplier) {
+    try {
+      if (supplier.is_active) {
+        await apiRequest<void>(`/suppliers/${supplier.id}/`, { method: "DELETE" });
+      } else {
+        await apiRequest<Supplier>(`/suppliers/${supplier.id}/`, {
+          method: "PATCH",
+          body: JSON.stringify({ is_active: true }),
+        });
+      }
+      const refreshed = await apiRequest<Supplier[]>(
+        `/suppliers/?restaurant_id=${encodeURIComponent(restaurantId)}&include_inactive=true`,
+      );
+      setSuppliers(refreshed);
+      setNotice("Supplier status updated.");
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "Unable to update supplier status.");
+    }
   }
 
   return (
@@ -221,13 +219,28 @@ export default function Suppliers() {
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={openAddForm}
-          className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700"
-        >
-          + Add supplier
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <select
+            aria-label="Select restaurant"
+            value={restaurantId}
+            onChange={(event) => setRestaurantId(event.target.value)}
+            className={inputClass}
+            disabled={restaurants.length === 0}
+          >
+            {restaurants.length === 0 && <option value="">No assigned restaurant</option>}
+            {restaurants.map((restaurant) => (
+              <option key={restaurant.id} value={restaurant.id}>{restaurant.name}</option>
+            ))}
+          </select>
+          <button
+            type="button"
+            onClick={openAddForm}
+            disabled={!restaurantId}
+            className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            + Add supplier
+          </button>
+        </div>
       </div>
 
       {/* Notification */}
@@ -304,10 +317,9 @@ export default function Suppliers() {
 
             <FormField label="Contact person">
               <input
-                required
-                value={form.contact}
+                value={form.contact_name}
                 onChange={(event) =>
-                  setForm({ ...form, contact: event.target.value })
+                  setForm({ ...form, contact_name: event.target.value })
                 }
                 placeholder="Contact person's name"
                 className={inputClass}
@@ -447,7 +459,7 @@ export default function Suppliers() {
                   </td>
 
                   <td className="px-5 py-4 text-slate-700">
-                    {supplier.contact}
+                    {supplier.contact_name || "—"}
                   </td>
 
                   <td className="px-5 py-4">
@@ -466,19 +478,19 @@ export default function Suppliers() {
                   <td className="px-5 py-4">
                     <span
                       className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${
-                        supplier.status === "Active"
+                        supplier.is_active
                           ? "bg-emerald-50 text-emerald-700"
                           : "bg-slate-100 text-slate-600"
                       }`}
                     >
                       <span
                         className={`h-1.5 w-1.5 rounded-full ${
-                          supplier.status === "Active"
+                          supplier.is_active
                             ? "bg-emerald-500"
                             : "bg-slate-400"
                         }`}
                       />
-                      {supplier.status}
+                      {supplier.is_active ? "Active" : "Inactive"}
                     </span>
                   </td>
 
@@ -494,14 +506,14 @@ export default function Suppliers() {
 
                       <button
                         type="button"
-                        onClick={() => toggleStatus(supplier.id)}
+                        onClick={() => toggleStatus(supplier)}
                         className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                          supplier.status === "Active"
+                          supplier.is_active
                             ? "bg-rose-50 text-rose-700 hover:bg-rose-100"
                             : "bg-emerald-50 text-emerald-700 hover:bg-emerald-100"
                         }`}
                       >
-                        {supplier.status === "Active" ? "Deactivate" : "Activate"}
+                        {supplier.is_active ? "Deactivate" : "Activate"}
                       </button>
                     </div>
                   </td>
@@ -526,8 +538,7 @@ export default function Suppliers() {
         </div>
 
         <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
-          Demo data only. Supplier changes are stored in React state and
-          reset when the page reloads.
+          {loading ? "Loading suppliers…" : "Supplier records are saved to the restaurant inventory."}
         </div>
       </section>
     </div>

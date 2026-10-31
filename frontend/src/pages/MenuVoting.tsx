@@ -1,410 +1,321 @@
+import { useEffect, useMemo, useState } from "react";
+import { apiRequest } from "../api/apiClient";
 
-import { useMemo, useState } from "react";
-
-type Dish = {
+type Restaurant = { id: number; name: string };
+type VoteOption = {
   id: number;
   name: string;
   description: string;
   category: string;
-  votes: number;
-  emoji: string;
-  price: number;
+  price?: string | number;
+  votes?: number;
+};
+type PublicPoll = {
+  restaurant: Restaurant;
+  period: { vote_date: string; starts_at: string; ends_at: string; is_open: boolean };
+  results_visible: boolean;
+  total_votes: number | null;
+  my_vote: number | null;
+  options: VoteOption[];
+};
+type AdminPoll = {
+  restaurant: Restaurant;
+  vote_date: string;
+  is_open: boolean;
+  total_votes: number;
+  options: VoteOption[];
 };
 
-const initialDishes: Dish[] = [
-  {
-    id: 1,
-    name: "Paneer Butter Masala",
-    description: "Creamy tomato gravy with soft paneer.",
-    category: "North Indian",
-    votes: 42,
-    emoji: "🍛",
-    price: 140,
-  },
-  {
-    id: 2,
-    name: "Veg Biryani",
-    description: "Fragrant basmati rice with vegetables.",
-    category: "Rice",
-    votes: 35,
-    emoji: "🍚",
-    price: 120,
-  },
-  {
-    id: 3,
-    name: "Masala Dosa",
-    description: "Crispy dosa served with chutney and sambar.",
-    category: "South Indian",
-    votes: 51,
-    emoji: "🥞",
-    price: 80,
-  },
-  {
-    id: 4,
-    name: "Chole Bhature",
-    description: "Spiced chickpeas served with fluffy bhature.",
-    category: "North Indian",
-    votes: 28,
-    emoji: "🫓",
-    price: 110,
-  },
-  {
-    id: 5,
-    name: "Veg Fried Rice",
-    description: "Stir-fried rice with fresh vegetables.",
-    category: "Rice",
-    votes: 19,
-    emoji: "🥡",
-    price: 100,
-  },
-  {
-    id: 6,
-    name: "Idli Sambar",
-    description: "Steamed idlis with traditional sambar.",
-    category: "South Indian",
-    votes: 31,
-    emoji: "🥣",
-    price: 60,
-  },
-];
+type MenuVotingProps = { management?: boolean };
 
-const categories = [
-  "All",
-  "North Indian",
-  "South Indian",
-  "Rice",
-];
-
-export default function MenuVoting() {
-  const [dishes, setDishes] = useState(initialDishes);
-  const [selectedCategory, setSelectedCategory] = useState("All");
-  const [votedDishId, setVotedDishId] = useState<number | null>(null);
+export default function MenuVoting({ management = false }: MenuVotingProps) {
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [restaurantId, setRestaurantId] = useState<number | null>(() => {
+    const rawId = new URLSearchParams(window.location.search).get("restaurant_id");
+    return rawId && /^\d+$/.test(rawId) ? Number(rawId) : null;
+  });
+  const [poll, setPoll] = useState<PublicPoll | AdminPoll | null>(null);
+  const [selectedItem, setSelectedItem] = useState<number | null>(null);
   const [search, setSearch] = useState("");
-  const [showResults, setShowResults] = useState(true);
+  const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [notice, setNotice] = useState("");
+  const [error, setError] = useState("");
 
-  const totalVotes = dishes.reduce(
-    (total, dish) => total + dish.votes,
-    0
+  useEffect(() => {
+    void apiRequest<Restaurant[]>("/public/restaurants/")
+      .then((data) => {
+        setRestaurants(data);
+        setRestaurantId((current) =>
+          current && data.some((restaurant) => restaurant.id === current)
+            ? current
+            : data[0]?.id ?? null,
+        );
+        if (data.length === 0) setLoading(false);
+      })
+      .catch((requestError: unknown) => {
+        setError(requestError instanceof Error ? requestError.message : "Unable to load restaurants.");
+        setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!restaurantId) {
+      return;
+    }
+
+    let active = true;
+    const path = `/menu-votes/?restaurant_id=${restaurantId}${management ? "&manage=true" : ""}`;
+    void apiRequest<PublicPoll | AdminPoll>(path)
+      .then((result) => {
+        if (!active) return;
+        setPoll(result);
+        if ("my_vote" in result && result.my_vote) {
+          setSelectedItem(result.my_vote);
+          setNotice("Your vote has already been recorded for today's poll.");
+        }
+      })
+      .catch((requestError: unknown) => {
+        if (active) {
+          setError(requestError instanceof Error ? requestError.message : "Unable to load the voting period.");
+        }
+      })
+      .finally(() => {
+        if (active) setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, [restaurantId, management]);
+
+  const options = useMemo(() => poll?.options ?? [], [poll]);
+  const filteredOptions = useMemo(
+    () => options.filter((option) => option.name.toLowerCase().includes(search.toLowerCase())),
+    [options, search],
   );
+  const periodOpen = poll
+    ? "period" in poll ? poll.period.is_open : poll.is_open
+    : false;
+  const totalVotes = poll
+    ? "total_votes" in poll ? poll.total_votes : 0
+    : 0;
+  const periodDescription = poll && "period" in poll
+    ? `${new Date(poll.period.starts_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} – ${new Date(poll.period.ends_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} (restaurant timezone)`
+    : "Current restaurant-local calendar day";
+  const selectedOption = options.find((option) => option.id === selectedItem);
 
-  const filteredDishes = useMemo(() => {
-    return dishes.filter((dish) => {
-      const matchesCategory =
-        selectedCategory === "All" ||
-        dish.category === selectedCategory;
-
-      const matchesSearch = dish.name
-        .toLowerCase()
-        .includes(search.toLowerCase());
-
-      return matchesCategory && matchesSearch;
-    });
-  }, [dishes, selectedCategory, search]);
-
-  const rankedDishes = [...dishes].sort(
-    (a, b) => b.votes - a.votes
-  );
-
-  const winner = rankedDishes[0];
-
-  function handleVote(dishId: number) {
-    if (votedDishId !== null) return;
-
-    setDishes((currentDishes) =>
-      currentDishes.map((dish) =>
-        dish.id === dishId
-          ? { ...dish, votes: dish.votes + 1 }
-          : dish
-      )
-    );
-
-    setVotedDishId(dishId);
+  async function submitVote() {
+    if (!restaurantId || selectedItem === null || submitting) return;
+    setSubmitting(true);
+    setError("");
+    try {
+      const response = await apiRequest<{ menu_item: number; menu_item_name: string; detail: string }>(
+        `/menu-votes/?restaurant_id=${restaurantId}`,
+        {
+          method: "POST",
+          body: JSON.stringify({ restaurant_id: restaurantId, menu_item_id: selectedItem }),
+        },
+      );
+      setSelectedItem(response.menu_item);
+      setNotice(response.detail);
+      setPoll((current) =>
+        current && "my_vote" in current
+          ? { ...current, my_vote: response.menu_item }
+          : current,
+      );
+    } catch (requestError) {
+      const message = requestError instanceof Error ? requestError.message : "Unable to submit your vote.";
+      if (message.toLowerCase().includes("already voted")) {
+        setNotice("You have already voted in today's poll.");
+      } else {
+        setError(message);
+      }
+    } finally {
+      setSubmitting(false);
+    }
   }
 
-  function removeVote() {
-    if (votedDishId === null) return;
-
-    setDishes((currentDishes) =>
-      currentDishes.map((dish) =>
-        dish.id === votedDishId
-          ? { ...dish, votes: Math.max(0, dish.votes - 1) }
-          : dish
-      )
-    );
-
-    setVotedDishId(null);
+  async function setVotingOpen(isOpen: boolean) {
+    if (!restaurantId) return;
+    try {
+      await apiRequest(`/menu-votes/?restaurant_id=${restaurantId}&manage=true`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_open: isOpen }),
+      });
+      setPoll((current) =>
+        current && "is_open" in current
+          ? { ...current, is_open: isOpen }
+          : current,
+      );
+      setNotice(isOpen ? "Voting is open for today's period." : "Voting has been closed for today.");
+      setError("");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to update voting.");
+    }
   }
 
   return (
-    <div className="min-h-screen space-y-6 bg-slate-50 p-4 text-slate-800 sm:p-6">
-      {/* Header */}
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+    <main className="min-h-screen space-y-6 bg-slate-50 p-4 text-slate-900 sm:p-8">
+      <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <p className="text-sm font-medium text-orange-600">
-            MENU MANAGEMENT
+          <p className="text-sm font-bold uppercase tracking-[0.18em] text-orange-700">
+            {management ? "Voting administration" : "Customer menu poll"}
           </p>
-          <h1 className="mt-1 text-2xl font-bold sm:text-3xl">
-            Menu Voting
-          </h1>
-          <p className="mt-2 text-sm text-slate-500">
-            Let everyone choose what should be served tomorrow.
-          </p>
-        </div>
-
-        <div className="rounded-xl border border-orange-100 bg-orange-50 px-4 py-3">
-          <p className="text-xs font-medium text-orange-700">
-            VOTING FOR
-          </p>
-          <p className="mt-1 font-semibold text-orange-950">
-            Tomorrow's Menu
+          <h1 className="mt-2 text-3xl font-black sm:text-4xl">Menu Voting</h1>
+          <p className="mt-2 max-w-2xl text-sm text-slate-600">
+            {management
+              ? "View today's vote totals and manage the voting period."
+              : "Choose one active menu item in today's restaurant poll. No account is required."}
           </p>
         </div>
-      </div>
-
-      {/* Summary cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <p className="text-sm text-slate-500">Total Votes</p>
-          <p className="mt-2 text-3xl font-bold">{totalVotes}</p>
-          <p className="mt-2 text-xs text-slate-400">
-            Across all menu options
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <p className="text-sm text-slate-500">Dishes in Poll</p>
-          <p className="mt-2 text-3xl font-bold">{dishes.length}</p>
-          <p className="mt-2 text-xs text-slate-400">
-            Available choices
-          </p>
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-white p-5">
-          <p className="text-sm text-slate-500">Current Leader</p>
-          <p className="mt-2 text-xl font-bold">
-            {winner?.emoji} {winner?.name}
-          </p>
-          <p className="mt-2 text-xs text-slate-400">
-            {winner?.votes} votes so far
-          </p>
-        </div>
-      </div>
-
-      {/* Voting notice */}
-      <div className="flex flex-col justify-between gap-3 rounded-2xl border border-orange-200 bg-orange-50 p-4 sm:flex-row sm:items-center">
-        <div className="flex gap-3">
-          <span className="text-2xl">🗳️</span>
-          <div>
-            <p className="font-semibold text-orange-950">
-              Choose your favourite dish
-            </p>
-            <p className="mt-1 text-sm text-orange-800">
-              {votedDishId === null
-                ? "You can vote for one dish in this demo."
-                : `You voted for ${
-                    dishes.find((dish) => dish.id === votedDishId)?.name
-                  }.`}
-            </p>
-          </div>
-        </div>
-
-        {votedDishId !== null && (
-          <button
-            onClick={removeVote}
-            className="rounded-lg border border-orange-300 bg-white px-4 py-2 text-sm font-semibold text-orange-800 hover:bg-orange-100"
+        <label className="text-sm font-semibold text-slate-700">
+          Restaurant
+          <select
+            className="mt-2 block min-w-60 rounded-xl border border-slate-300 bg-white px-4 py-3"
+            value={restaurantId ?? ""}
+            onChange={(event) => {
+              setLoading(true);
+              setError("");
+              setNotice("");
+              setRestaurantId(Number(event.target.value));
+              setSelectedItem(null);
+            }}
+            disabled={!restaurants.length}
           >
-            Change My Vote
-          </button>
-        )}
-      </div>
+            {restaurants.map((restaurant) => (
+              <option value={restaurant.id} key={restaurant.id}>{restaurant.name}</option>
+            ))}
+          </select>
+        </label>
+      </header>
 
-      {/* Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row">
-        <input
-          type="text"
-          value={search}
-          onChange={(event) => setSearch(event.target.value)}
-          placeholder="Search dishes..."
-          className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-orange-400 sm:max-w-sm"
-        />
-
-        <div className="flex flex-wrap gap-2">
-          {categories.map((category) => (
-            <button
-              key={category}
-              onClick={() => setSelectedCategory(category)}
-              className={`rounded-lg px-4 py-2 text-sm font-medium transition ${
-                selectedCategory === category
-                  ? "bg-orange-500 text-white"
-                  : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-100"
-              }`}
-            >
-              {category}
-            </button>
-          ))}
-        </div>
-      </div>
-
-      {/* Dish cards */}
-      <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-3">
-        {filteredDishes.map((dish) => {
-          const percentage =
-            totalVotes > 0
-              ? Math.round((dish.votes / totalVotes) * 100)
-              : 0;
-
-          const isVoted = votedDishId === dish.id;
-
-          return (
-            <div
-              key={dish.id}
-              className={`rounded-2xl border bg-white p-5 transition ${
-                isVoted
-                  ? "border-orange-400 ring-2 ring-orange-100"
-                  : "border-slate-200 hover:border-slate-300"
-              }`}
-            >
-              <div className="flex items-start justify-between">
-                <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-orange-50 text-3xl">
-                  {dish.emoji}
-                </div>
-
-                {winner?.id === dish.id && (
-                  <span className="rounded-full bg-amber-100 px-3 py-1 text-xs font-semibold text-amber-800">
-                    🏆 Leading
-                  </span>
-                )}
-              </div>
-
-              <h2 className="mt-4 text-lg font-bold">{dish.name}</h2>
-
-              <p className="mt-1 min-h-10 text-sm text-slate-500">
-                {dish.description}
-              </p>
-
-              <div className="mt-3 flex items-center justify-between">
-                <span className="rounded-md bg-slate-100 px-2 py-1 text-xs text-slate-600">
-                  {dish.category}
-                </span>
-                <span className="font-semibold">₹{dish.price}</span>
-              </div>
-
-              {showResults && (
-                <div className="mt-5">
-                  <div className="mb-2 flex justify-between text-sm">
-                    <span className="text-slate-500">
-                      {dish.votes} votes
-                    </span>
-                    <span className="font-semibold">{percentage}%</span>
-                  </div>
-
-                  <div
-                    className="h-2 overflow-hidden rounded-full bg-slate-100"
-                    role="progressbar"
-                    aria-label={`${dish.name} vote share`}
-                    aria-valuenow={percentage}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                  >
-                    <div
-                      className="h-full rounded-full bg-orange-500 transition-all duration-300"
-                      style={{ width: `${percentage}%` }}
-                    />
-                  </div>
-                </div>
-              )}
-
-              <button
-                onClick={() => handleVote(dish.id)}
-                disabled={votedDishId !== null}
-                className={`mt-5 w-full rounded-xl px-4 py-3 text-sm font-semibold transition ${
-                  isVoted
-                    ? "bg-green-100 text-green-800"
-                    : votedDishId !== null
-                      ? "cursor-not-allowed bg-slate-100 text-slate-400"
-                      : "bg-orange-500 text-white hover:bg-orange-600"
-                }`}
-              >
-                {isVoted
-                  ? "✓ Your Vote"
-                  : votedDishId !== null
-                    ? "Already Voted"
-                    : "Vote for This Dish"}
-              </button>
-            </div>
-          );
-        })}
-      </div>
-
-      {filteredDishes.length === 0 && (
-        <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-          <p className="text-lg font-semibold">No dishes found</p>
-          <p className="mt-2 text-sm text-slate-500">
-            Try another search term or category.
-          </p>
-        </div>
+      {error && (
+        <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          {notice}
+        </p>
       )}
 
-      {/* Results */}
-      <div className="rounded-2xl border border-slate-200 bg-white p-5">
-        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
-          <div>
-            <h2 className="text-lg font-bold">Voting Results</h2>
-            <p className="mt-1 text-sm text-slate-500">
-              Current ranking of tomorrow's menu choices.
-            </p>
-          </div>
-
-          <button
-            onClick={() => setShowResults((current) => !current)}
-            className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-medium hover:bg-slate-50"
-          >
-            {showResults ? "Hide Results on Cards" : "Show Results on Cards"}
-          </button>
-        </div>
-
-        <div className="mt-5 space-y-4">
-          {rankedDishes.map((dish, index) => (
-            <div
-              key={dish.id}
-              className="flex items-center gap-3"
-            >
-              <span className="w-7 text-sm font-semibold text-slate-400">
-                #{index + 1}
-              </span>
-
-              <span className="text-xl">{dish.emoji}</span>
-
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-semibold">
-                  {dish.name}
-                </p>
-                <div className="mt-2 h-2 overflow-hidden rounded-full bg-slate-100">
-                  <div
-                    className="h-full rounded-full bg-orange-400"
-                    style={{
-                      width: `${
-                        winner?.votes
-                          ? (dish.votes / winner.votes) * 100
-                          : 0
-                      }%`,
-                    }}
-                  />
-                </div>
-              </div>
-
-              <span className="whitespace-nowrap text-sm font-semibold">
-                {dish.votes} votes
-              </span>
+      {loading ? (
+        <p className="py-16 text-center text-slate-600">Loading today's poll…</p>
+      ) : !poll ? (
+        <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-600">
+          No active restaurant is available.
+        </p>
+      ) : (
+        <>
+          <section className="flex flex-col justify-between gap-4 rounded-2xl border border-orange-200 bg-orange-50 p-5 sm:flex-row sm:items-center">
+            <div>
+              <p className="text-xs font-bold uppercase tracking-wide text-orange-800">Today's voting period</p>
+              <p className="mt-1 text-lg font-bold text-orange-950">
+                {new Date(("period" in poll ? poll.period.vote_date : poll.vote_date) + "T00:00:00").toLocaleDateString()}
+              </p>
+              <p className="mt-1 text-sm text-orange-900">{periodDescription}</p>
+              <p className="mt-1 text-sm text-orange-900">
+                {periodOpen ? "Voting is open" : "Voting is closed"}
+                {management ? ` · ${totalVotes} vote${totalVotes === 1 ? "" : "s"}` : ""}
+              </p>
             </div>
-          ))}
-        </div>
-      </div>
+            {management ? (
+              <button
+                type="button"
+                onClick={() => void setVotingOpen(!periodOpen)}
+                className={`rounded-xl px-5 py-3 text-sm font-bold text-white ${periodOpen ? "bg-rose-700 hover:bg-rose-800" : "bg-emerald-700 hover:bg-emerald-800"}`}
+              >
+                {periodOpen ? "Close today's poll" : "Reopen today's poll"}
+              </button>
+            ) : null}
+          </section>
 
-      <p className="text-xs text-slate-400">
-        Demo mode: votes are stored in React state and reset when the page
-        reloads. They are not saved to the database or shared with other users.
-      </p>
-    </div>
+          <label className="block max-w-md text-sm font-semibold text-slate-700">
+            Find a menu item
+            <input
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+              placeholder="Search eligible choices"
+              className="mt-2 w-full rounded-xl border border-slate-300 bg-white px-4 py-3 font-normal"
+            />
+          </label>
+
+          {filteredOptions.length ? (
+            <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+              {filteredOptions.map((option) => {
+                const isSelected = selectedItem === option.id;
+                return (
+                  <article
+                    key={option.id}
+                    className={`rounded-2xl border bg-white p-5 shadow-sm ${isSelected ? "border-orange-500 ring-2 ring-orange-100" : "border-slate-200"}`}
+                  >
+                    <p className="text-xs font-bold uppercase tracking-wide text-orange-700">{option.category}</p>
+                    <h2 className="mt-2 text-xl font-bold">{option.name}</h2>
+                    <p className="mt-2 min-h-10 text-sm text-slate-600">{option.description || "A choice from today's active menu."}</p>
+                    {option.price !== undefined && (
+                      <p className="mt-3 text-sm font-semibold">₹{Number(option.price).toFixed(2)}</p>
+                    )}
+                    {management ? (
+                      <p className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold">
+                        {option.votes ?? 0} votes
+                      </p>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={!periodOpen || selectedItem !== null}
+                        onClick={() => setSelectedItem(option.id)}
+                        className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-bold ${isSelected ? "bg-emerald-100 text-emerald-900" : "bg-orange-600 text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"}`}
+                      >
+                        {isSelected ? "Selected" : "Choose this item"}
+                      </button>
+                    )}
+                  </article>
+                );
+              })}
+            </section>
+          ) : (
+            <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-600">
+              {options.length ? "No items match your search." : "There are no eligible active menu items for this poll."}
+            </p>
+          )}
+
+          {!management && selectedItem !== null && periodOpen && !("my_vote" in poll && poll.my_vote) && (
+            <div className="flex flex-col items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center">
+              <p className="text-sm text-slate-700">
+                Your selection: <strong>{selectedOption?.name}</strong>
+              </p>
+              <button
+                type="button"
+                disabled={submitting}
+                onClick={() => void submitVote()}
+                className="rounded-xl bg-orange-600 px-5 py-3 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-60"
+              >
+                {submitting ? "Submitting…" : "Submit vote"}
+              </button>
+            </div>
+          )}
+
+          {!management && "results_visible" in poll && poll.results_visible && (
+            <section className="rounded-2xl border border-slate-200 bg-white p-5">
+              <h2 className="text-lg font-bold">Voting results</h2>
+              <p className="mt-1 text-sm text-slate-600">Results are visible after the voting period closes.</p>
+              <div className="mt-4 space-y-3">
+                {options.map((option) => (
+                  <p key={option.id} className="flex justify-between gap-3 text-sm">
+                    <span>{option.name}</span><strong>{option.votes ?? 0}</strong>
+                  </p>
+                ))}
+              </div>
+            </section>
+          )}
+        </>
+      )}
+      {!management && (
+        <p className="text-xs text-slate-500">
+          Anonymous vote duplication is prevented with a signed, same-site browser cookie. Clearing cookies or voting from another browser can bypass this limit.
+        </p>
+      )}
+    </main>
   );
 }

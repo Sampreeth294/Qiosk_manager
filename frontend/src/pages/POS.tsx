@@ -1,7 +1,10 @@
-
-import { useEffect, useMemo, useState } from "react";
-
-const API = "http://127.0.0.1:8001/api";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+} from "react";
+import { apiRequest } from "../api/apiClient";
 
 type Restaurant = {
   id: number;
@@ -66,44 +69,12 @@ type CreatedOrder = {
   created_at: string;
 };
 
-function formatApiError(data: unknown): string {
-  function collectMessages(value: unknown, path = ""): string[] {
-    if (typeof value === "string") {
-      return [path ? `${path}: ${value}` : value];
-    }
-
-    if (Array.isArray(value)) {
-      return value.flatMap((item) => collectMessages(item, path));
-    }
-
-    if (value && typeof value === "object") {
-      return Object.entries(value).flatMap(([key, item]) =>
-        collectMessages(item, path ? `${path}.${key}` : key),
-      );
-    }
-
-    return [];
-  }
-
-  return collectMessages(data).join("; ") || "The request failed.";
-}
-
 const money = (value: number) =>
   new Intl.NumberFormat("en-IN", {
     style: "currency",
     currency: "INR",
     maximumFractionDigits: 2,
   }).format(value);
-
-async function readResponse<T>(response: Response): Promise<T> {
-  const data = await response.json().catch(() => null);
-
-  if (!response.ok) {
-    throw new Error(formatApiError(data));
-  }
-
-  return data as T;
-}
 
 export default function POS() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
@@ -124,25 +95,61 @@ export default function POS() {
   const [message, setMessage] = useState("");
   const [receipt, setReceipt] = useState<CreatedOrder | null>(null);
 
-  // Load real restaurants, categories and menu items from Django.
+  // Recent orders state
+  const [recentOrders, setRecentOrders] = useState<CreatedOrder[]>([]);
+  const [ordersLoading, setOrdersLoading] = useState(false);
+  const [ordersError, setOrdersError] = useState("");
+
+  // Load the 10 most recent orders from the backend.
+  const loadRecentOrders = useCallback(async () => {
+    setOrdersLoading(true);
+    setOrdersError("");
+
+    try {
+      const data = await apiRequest<CreatedOrder[]>("/orders/");
+
+      setRecentOrders(
+        [...data]
+          .sort(
+            (a, b) =>
+              new Date(b.created_at).getTime() -
+              new Date(a.created_at).getTime(),
+          )
+          .slice(0, 10),
+      );
+    } catch (err) {
+      setOrdersError(
+        err instanceof Error
+          ? err.message
+          : "Unable to load recent orders.",
+      );
+    } finally {
+      setOrdersLoading(false);
+    }
+  }, []);
+
+  // Load recent orders when the POS page opens.
+  useEffect(() => {
+    const timeoutId = window.setTimeout(() => {
+      void loadRecentOrders();
+    }, 0);
+
+    return () => {
+      window.clearTimeout(timeoutId);
+    };
+  }, [loadRecentOrders]);
+
+  // Load restaurants, categories and menu items from Django.
   useEffect(() => {
     let cancelled = false;
 
     async function loadInitialData() {
       try {
-        const [restaurantResponse, categoryResponse, menuResponse] =
-          await Promise.all([
-            fetch(`${API}/restaurants/`),
-            fetch(`${API}/categories/`),
-            fetch(`${API}/menu-items/`),
-          ]);
-
-        const [restaurantData, categoryData, menuData] =
-          await Promise.all([
-            readResponse<Restaurant[]>(restaurantResponse),
-            readResponse<MenuCategory[]>(categoryResponse),
-            readResponse<MenuItem[]>(menuResponse),
-          ]);
+        const [restaurantData, categoryData, menuData] = await Promise.all([
+          apiRequest<Restaurant[]>("/restaurants/"),
+          apiRequest<MenuCategory[]>("/categories/"),
+          apiRequest<MenuItem[]>("/menu-items/"),
+        ]);
 
         if (cancelled) return;
 
@@ -205,7 +212,9 @@ export default function POS() {
         };
       })
       .filter((product): product is Product => product !== null)
-      .filter((product) => product.restaurantId === selectedRestaurantId);
+      .filter(
+        (product) => product.restaurantId === selectedRestaurantId,
+      );
   }, [categories, menuItems, selectedRestaurantId]);
 
   const categoryOptions = useMemo(() => {
@@ -239,8 +248,7 @@ export default function POS() {
     0,
   );
 
-  // The current Django backend stores the sum of item prices.
-  // Discounts and tax are not yet implemented in the backend.
+  // Tax and discounts are not yet implemented in the backend.
   const total = subtotal;
 
   function addItem(product: Product) {
@@ -250,6 +258,11 @@ export default function POS() {
       );
 
       if (existing) {
+        // Limit each menu item's quantity to 99.
+        if (existing.quantity >= 99) {
+          return previous;
+        }
+
         return previous.map((item) =>
           item.product.id === product.id
             ? { ...item, quantity: item.quantity + 1 }
@@ -270,7 +283,10 @@ export default function POS() {
       previous
         .map((item) =>
           item.product.id === productId
-            ? { ...item, quantity: item.quantity + change }
+            ? {
+                ...item,
+                quantity: Math.min(99, item.quantity + change),
+              }
             : item,
         )
         .filter((item) => item.quantity > 0),
@@ -293,7 +309,7 @@ export default function POS() {
   async function checkout() {
     if (saving) return;
 
-    if (!restaurantId || !restaurants.length) {
+    if (!restaurantId || restaurants.length === 0) {
       setError("Please select an active restaurant.");
       return;
     }
@@ -303,10 +319,7 @@ export default function POS() {
       return;
     }
 
-    if (
-      orderType === "Dine-in" &&
-      !tableNumber.trim()
-    ) {
+    if (orderType === "Dine-in" && !tableNumber.trim()) {
       setError("Please select a table number.");
       return;
     }
@@ -329,21 +342,20 @@ export default function POS() {
         })),
       };
 
-      const response = await fetch(`${API}/orders/create/`, {
+      const order = await apiRequest<CreatedOrder>("/orders/create/", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
         body: JSON.stringify(payload),
       });
 
-      const order = await readResponse<CreatedOrder>(response);
 
       setReceipt(order);
       setMessage("Order successfully saved to the database.");
       setCart([]);
       setSearch("");
       setCategoryId("All");
+
+      // Refresh the recent orders after successful checkout.
+      await loadRecentOrders();
     } catch (err) {
       setError(
         err instanceof Error
@@ -433,14 +445,17 @@ export default function POS() {
 
   return (
     <div className="space-y-6">
+      {/* Page heading */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
           <p className="text-sm font-medium text-indigo-600">
             RESTAURANT OPERATIONS
           </p>
+
           <h1 className="mt-2 text-2xl font-bold text-slate-900">
             Point of Sale
           </h1>
+
           <p className="mt-1 text-sm text-slate-500">
             Create restaurant orders and save them to the database.
           </p>
@@ -451,6 +466,7 @@ export default function POS() {
         </span>
       </div>
 
+      {/* General error message */}
       {error && (
         <div
           role="alert"
@@ -460,6 +476,7 @@ export default function POS() {
         </div>
       )}
 
+      {/* Success message */}
       {message && (
         <div
           role="status"
@@ -469,6 +486,114 @@ export default function POS() {
         </div>
       )}
 
+      {/* Recent orders */}
+      <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
+        <div className="flex flex-col justify-between gap-3 sm:flex-row sm:items-center">
+          <div>
+            <h2 className="text-lg font-bold text-slate-900">
+              Recent Orders
+            </h2>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Your 10 most recent orders across restaurants.
+            </p>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => void loadRecentOrders()}
+            disabled={ordersLoading}
+            className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {ordersLoading ? "Refreshing..." : "Refresh Orders"}
+          </button>
+        </div>
+
+        {ordersError && (
+          <div
+            role="alert"
+            className="mt-4 rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+          >
+            {ordersError}
+          </div>
+        )}
+
+        {ordersLoading && recentOrders.length === 0 ? (
+          <p className="mt-4 text-sm text-slate-500">
+            Loading recent orders...
+          </p>
+        ) : recentOrders.length === 0 ? (
+          !ordersError && (
+            <p className="mt-4 rounded-xl bg-slate-50 p-5 text-sm text-slate-500">
+              No orders found yet. Create your first order using the POS.
+            </p>
+          )
+        ) : (
+          <div className="mt-4 overflow-x-auto">
+            <table className="w-full min-w-[720px] border-collapse text-left text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-xs uppercase tracking-wide text-slate-500">
+                  <th className="px-3 py-3 font-semibold">Order</th>
+                  <th className="px-3 py-3 font-semibold">Restaurant</th>
+                  <th className="px-3 py-3 font-semibold">Type / Table</th>
+                  <th className="px-3 py-3 font-semibold">Date</th>
+                  <th className="px-3 py-3 text-right font-semibold">
+                    Total
+                  </th>
+                  <th className="px-3 py-3 font-semibold">Status</th>
+                </tr>
+              </thead>
+
+              <tbody>
+                {recentOrders.map((order) => (
+                  <tr
+                    key={order.id}
+                    className="border-b border-slate-100 last:border-0"
+                  >
+                    <td className="whitespace-nowrap px-3 py-3 font-semibold text-slate-800">
+                      #{order.order_number}
+                    </td>
+
+                    <td className="px-3 py-3 text-slate-600">
+                      {order.restaurant_name}
+                    </td>
+
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-600">
+                      {order.order_type === "DINE_IN"
+                        ? "Dine-in"
+                        : "Takeaway"}
+
+                      {order.order_type === "DINE_IN" &&
+                      order.table_number
+                        ? ` · Table ${order.table_number}`
+                        : ""}
+                    </td>
+
+                    <td className="whitespace-nowrap px-3 py-3 text-slate-600">
+                      {new Date(order.created_at).toLocaleString("en-IN", {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })}
+                    </td>
+
+                    <td className="whitespace-nowrap px-3 py-3 text-right font-medium text-slate-800">
+                      {money(Number(order.total_amount))}
+                    </td>
+
+                    <td className="px-3 py-3">
+                      <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-1 text-xs font-semibold text-slate-700">
+                        {order.status.replaceAll("_", " ")}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </section>
+
+      {/* Successful order receipt */}
       {receipt && (
         <section className="rounded-2xl border border-emerald-200 bg-emerald-50 p-5">
           <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
@@ -476,9 +601,11 @@ export default function POS() {
               <p className="font-semibold text-emerald-800">
                 Order created successfully
               </p>
+
               <p className="mt-1 break-all text-sm text-emerald-700">
                 Order #{receipt.order_number}
               </p>
+
               <p className="mt-1 text-sm text-emerald-700">
                 Total: {money(Number(receipt.total_amount))} · Status:{" "}
                 {receipt.status}
@@ -496,12 +623,14 @@ export default function POS() {
         </section>
       )}
 
+      {/* Restaurant menu and current order */}
       {loading ? (
         <div className="rounded-2xl border border-slate-200 bg-white p-10 text-center text-sm text-slate-500">
           Loading restaurants and menu items...
         </div>
       ) : (
         <>
+          {/* Restaurant selection */}
           <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
             <label
               htmlFor="restaurant"
@@ -521,7 +650,10 @@ export default function POS() {
               )}
 
               {restaurants.map((restaurant) => (
-                <option key={restaurant.id} value={String(restaurant.id)}>
+                <option
+                  key={restaurant.id}
+                  value={String(restaurant.id)}
+                >
                   {restaurant.name}
                 </option>
               ))}
@@ -529,7 +661,9 @@ export default function POS() {
           </section>
 
           <div className="grid items-start gap-6 xl:grid-cols-3">
+            {/* Menu */}
             <section className="space-y-5 xl:col-span-2">
+              {/* Search and categories */}
               <div className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm sm:p-5">
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <input
@@ -580,6 +714,7 @@ export default function POS() {
                 </div>
               </div>
 
+              {/* Menu products */}
               <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
                 {filteredProducts.map((product) => (
                   <button
@@ -612,6 +747,7 @@ export default function POS() {
                       <span className="font-bold text-slate-900">
                         {money(product.price)}
                       </span>
+
                       <span className="rounded-lg bg-indigo-50 px-3 py-2 text-sm font-semibold text-indigo-700">
                         + Add
                       </span>
@@ -628,12 +764,14 @@ export default function POS() {
               </div>
             </section>
 
+            {/* Current order / cart */}
             <aside className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm xl:sticky xl:top-6">
               <div className="flex items-center justify-between gap-3">
                 <div>
                   <h2 className="text-lg font-bold text-slate-900">
                     Current Order
                   </h2>
+
                   <p className="mt-1 text-sm text-slate-500">
                     {itemCount} item{itemCount === 1 ? "" : "s"}
                   </p>
@@ -656,9 +794,11 @@ export default function POS() {
               {cart.length === 0 ? (
                 <div className="my-6 rounded-xl bg-slate-50 p-6 text-center">
                   <p className="text-3xl">🛒</p>
+
                   <p className="mt-3 text-sm font-medium text-slate-700">
                     No items added
                   </p>
+
                   <p className="mt-1 text-xs text-slate-500">
                     Select a menu item to begin.
                   </p>
@@ -674,6 +814,7 @@ export default function POS() {
                         <p className="text-sm font-medium text-slate-800">
                           {product.name}
                         </p>
+
                         <p className="shrink-0 text-sm font-semibold text-slate-800">
                           {money(product.price * quantity)}
                         </p>
@@ -715,6 +856,7 @@ export default function POS() {
                 </div>
               )}
 
+              {/* Order type */}
               <div className="mt-5 space-y-4 border-t border-slate-100 pt-5">
                 <div>
                   <p className="text-sm font-medium text-slate-700">
@@ -740,6 +882,7 @@ export default function POS() {
                   </div>
                 </div>
 
+                {/* Table number for dine-in orders */}
                 {orderType === "Dine-in" && (
                   <div>
                     <label
@@ -752,7 +895,9 @@ export default function POS() {
                     <select
                       id="table-number"
                       value={tableNumber}
-                      onChange={(event) => setTableNumber(event.target.value)}
+                      onChange={(event) =>
+                        setTableNumber(event.target.value)
+                      }
                       disabled={saving}
                       className="mt-2 w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
                     >
@@ -771,6 +916,7 @@ export default function POS() {
                   processing are not included in this order API yet.
                 </div>
 
+                {/* Order totals */}
                 <div className="space-y-3 border-t border-slate-100 pt-4">
                   <div className="flex justify-between text-sm text-slate-600">
                     <span>Subtotal</span>
@@ -783,6 +929,7 @@ export default function POS() {
                   </div>
                 </div>
 
+                {/* Checkout */}
                 <button
                   type="button"
                   onClick={() => void checkout()}

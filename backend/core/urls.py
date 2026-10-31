@@ -1,8 +1,18 @@
 
 from django.urls import path
 
+from .auth_views import (
+    current_user_view,
+    login_view,
+    logout_view,
+)
 from .views import (
+    analytics_summary,
+    food_rating_view,
     health_check,
+    menu_vote_view,
+    public_live_display,
+    public_restaurant_list,
     restaurant_list,
     create_restaurant,
     update_restaurant,
@@ -15,11 +25,29 @@ from .views import (
     order_list,
     create_order,
     update_order_status,
-   
+    restaurant_notifications_view,
+    restaurant_settings_view,
+)
+from .inventory_views import (
+    adjust_stock,
+    ingredient_detail,
+    ingredient_list,
+    low_stock_ingredients,
+    purchase_order_detail,
+    purchase_order_list,
+    receive_purchase_order_line,
+    receive_stock,
+    record_wastage,
+    stock_movement_list,
+    supplier_detail,
+    supplier_list,
 )
 
 
 urlpatterns = [
+    path("auth/login/", login_view, name="auth_login"),
+    path("auth/logout/", logout_view, name="auth_logout"),
+    path("auth/me/", current_user_view, name="auth_me"),
     path(
         "health-check/",
         health_check,
@@ -31,6 +59,16 @@ urlpatterns = [
         name="restaurant_list",
     ),
     path(
+        "public/restaurants/",
+        public_restaurant_list,
+        name="public_restaurant_list",
+    ),
+    path(
+        "public/live-display/",
+        public_live_display,
+        name="public_live_display",
+    ),
+    path(
         "restaurants/create/",
         create_restaurant,
         name="create_restaurant",
@@ -39,6 +77,31 @@ urlpatterns = [
         "restaurants/<int:pk>/update/",
         update_restaurant,
         name="update_restaurant",
+    ),
+    path(
+        "reports/summary/",
+        analytics_summary,
+        name="analytics_summary",
+    ),
+    path(
+        "settings/",
+        restaurant_settings_view,
+        name="restaurant_settings",
+    ),
+    path(
+        "settings/<int:restaurant_id>/",
+        restaurant_settings_view,
+        name="restaurant_settings_by_id",
+    ),
+    path(
+        "notifications/",
+        restaurant_notifications_view,
+        name="restaurant_notifications",
+    ),
+    path(
+        "notifications/<int:notification_id>/",
+        restaurant_notifications_view,
+        name="mark_notification_read",
     ),
     # Category management
     path(
@@ -81,5 +144,75 @@ urlpatterns = [
     update_order_status,
     name="update_order_status",
 ),
+    path(
+    "menu-votes/",
+    menu_vote_view,
+    name="menu_vote_view",
+),
+path(
+    "food-ratings/",
+    food_rating_view,
+    name="food_rating_view",
+),
+path(
+    "inventory/ingredients/",
+        ingredient_list,
+        name="ingredient_list",
+    ),
+    path(
+        "inventory/ingredients/<int:pk>/",
+        ingredient_detail,
+        name="ingredient_detail",
+    ),
+    path(
+        "inventory/ingredients/<int:pk>/receive/",
+        receive_stock,
+        name="receive_stock",
+    ),
+    path(
+        "inventory/ingredients/<int:pk>/adjust/",
+        adjust_stock,
+        name="adjust_stock",
+    ),
+    path(
+        "inventory/ingredients/<int:pk>/wastage/",
+        record_wastage,
+        name="record_wastage",
+    ),
+    path(
+        "inventory/low-stock/",
+        low_stock_ingredients,
+        name="low_stock_ingredients",
+    ),
+    path(
+        "inventory/movements/",
+        stock_movement_list,
+        name="stock_movement_list",
+    ),
+    path(
+        "suppliers/",
+        supplier_list,
+        name="supplier_list",
+    ),
+    path(
+        "suppliers/<int:pk>/",
+        supplier_detail,
+        name="supplier_detail",
+    ),
+    path(
+        "purchase-orders/",
+        purchase_order_list,
+        name="purchase_order_list",
+    ),
+    path(
+        "purchase-orders/lines/<int:pk>/receive/",
+        receive_purchase_order_line,
+        name="receive_purchase_order_line",
+    ),
+    path(
+        "purchase-orders/<int:pk>/",
+        purchase_order_detail,
+        name="purchase_order_detail",
+    ),
     
 ]

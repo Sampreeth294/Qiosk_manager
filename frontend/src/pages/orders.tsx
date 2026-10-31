@@ -1,238 +1,260 @@
+import { useEffect, useMemo, useState } from "react";
+import { apiRequest } from "../api/apiClient";
 
-import { useMemo, useState } from "react";
-
-type OrderStatus = "Pending" | "Preparing" | "Ready" | "Completed" | "Cancelled";
-
+type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "READY" | "COMPLETED" | "CANCELLED";
+type StatusFilter = "All" | OrderStatus;
+type Restaurant = { id: number; name: string };
+type ApiOrder = {
+  id: number;
+  order_number: string;
+  restaurant: number;
+  order_type: "DINE_IN" | "TAKEAWAY";
+  table_number: string;
+  status: OrderStatus;
+  total_amount: string;
+  items: { id: number; item_name: string; quantity: number; unit_price: string }[];
+  created_at: string;
+};
 type Order = {
-  id: string;
-  customer: string;
+  id: number;
+  displayId: string;
   items: string[];
   total: number;
   status: OrderStatus;
   time: string;
-  type: "Dine-in" | "Takeaway";
+  type: string;
 };
 
-const demoOrders: Order[] = [
-  {
-    id: "ORD-1001",
-    customer: "Rahul Sharma",
-    items: ["Paneer Butter Masala", "Butter Naan × 2"],
-    total: 320,
-    status: "Pending",
-    time: "10:15 AM",
-    type: "Dine-in",
-  },
-  {
-    id: "ORD-1002",
-    customer: "Priya Kumar",
-    items: ["Veg Fried Rice", "Gobi Manchurian"],
-    total: 260,
-    status: "Preparing",
-    time: "10:22 AM",
-    type: "Takeaway",
-  },
-  {
-    id: "ORD-1003",
-    customer: "Arjun Rao",
-    items: ["Masala Dosa", "Filter Coffee"],
-    total: 140,
-    status: "Ready",
-    time: "10:28 AM",
-    type: "Dine-in",
-  },
-  {
-    id: "ORD-1004",
-    customer: "Sneha Patel",
-    items: ["Veg Biryani", "Fresh Lime Soda"],
-    total: 230,
-    status: "Completed",
-    time: "10:32 AM",
-    type: "Takeaway",
-  },
-  {
-    id: "ORD-1005",
-    customer: "Kiran Reddy",
-    items: ["Idli × 2", "Vada"],
-    total: 100,
-    status: "Cancelled",
-    time: "10:40 AM",
-    type: "Dine-in",
-  },
+const statuses: StatusFilter[] = [
+  "All",
+  "PENDING",
+  "CONFIRMED",
+  "PREPARING",
+  "READY",
+  "COMPLETED",
+  "CANCELLED",
 ];
 
-const statuses: Array<"All" | OrderStatus> = [
-  "All",
-  "Pending",
-  "Preparing",
-  "Ready",
-  "Completed",
-  "Cancelled",
-];
+const statusLabels: Record<OrderStatus, string> = {
+  PENDING: "Pending",
+  CONFIRMED: "Confirmed",
+  PREPARING: "Preparing",
+  READY: "Ready",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
+};
 
 const statusStyles: Record<OrderStatus, string> = {
-  Pending: "bg-amber-50 text-amber-700 ring-amber-200",
-  Preparing: "bg-blue-50 text-blue-700 ring-blue-200",
-  Ready: "bg-violet-50 text-violet-700 ring-violet-200",
-  Completed: "bg-emerald-50 text-emerald-700 ring-emerald-200",
-  Cancelled: "bg-rose-50 text-rose-700 ring-rose-200",
+  PENDING: "bg-amber-50 text-amber-700 ring-amber-200",
+  CONFIRMED: "bg-indigo-50 text-indigo-700 ring-indigo-200",
+  PREPARING: "bg-blue-50 text-blue-700 ring-blue-200",
+  READY: "bg-violet-50 text-violet-700 ring-violet-200",
+  COMPLETED: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  CANCELLED: "bg-rose-50 text-rose-700 ring-rose-200",
 };
 
+const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
+  PENDING: ["CONFIRMED", "CANCELLED"],
+  CONFIRMED: ["PREPARING", "CANCELLED"],
+  PREPARING: ["READY"],
+  READY: ["COMPLETED"],
+  COMPLETED: [],
+  CANCELLED: [],
+};
+
+function mapOrder(order: ApiOrder): Order {
+  return {
+    id: order.id,
+    displayId: order.order_number.slice(0, 8).toUpperCase(),
+    items: order.items.map((item) => `${item.item_name} × ${item.quantity}`),
+    total: Number(order.total_amount),
+    status: order.status,
+    time: new Date(order.created_at).toLocaleString(),
+    type: order.order_type === "DINE_IN"
+      ? order.table_number ? `Dine-in · Table ${order.table_number}` : "Dine-in"
+      : "Takeaway",
+  };
+}
+
 function Orders() {
-  const [orders, setOrders] = useState<Order[]>(demoOrders);
-  const [activeFilter, setActiveFilter] = useState("All");
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [restaurantId, setRestaurantId] = useState<number | null>(null);
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [activeFilter, setActiveFilter] = useState<StatusFilter>("All");
   const [search, setSearch] = useState("");
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
+  const [loadedRestaurantId, setLoadedRestaurantId] = useState<number | null>(null);
+  const [loadingRestaurants, setLoadingRestaurants] = useState(true);
+  const [updating, setUpdating] = useState(false);
+  const [error, setError] = useState("");
 
+  useEffect(() => {
+    let active = true;
+    void apiRequest<Restaurant[]>("/restaurants/?include_inactive=true")
+      .then((data) => {
+        if (!active) return;
+        setRestaurants(data);
+        setRestaurantId(data[0]?.id ?? null);
+      })
+      .catch((requestError: unknown) => {
+        if (active) setError(requestError instanceof Error ? requestError.message : "Unable to load restaurants.");
+      })
+      .finally(() => {
+        if (active) setLoadingRestaurants(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!restaurantId) return;
+    let active = true;
+    void apiRequest<ApiOrder[]>(`/orders/?restaurant_id=${restaurantId}`)
+      .then((data) => {
+        if (!active) return;
+        const mapped = data.map(mapOrder);
+        setOrders(mapped);
+        setSelectedOrder((selected) => mapped.find((order) => order.id === selected?.id) ?? null);
+        setLoadedRestaurantId(restaurantId);
+      })
+      .catch((requestError: unknown) => {
+        if (active) {
+          setOrders([]);
+          setError(requestError instanceof Error ? requestError.message : "Unable to load orders.");
+          setLoadedRestaurantId(restaurantId);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [restaurantId]);
+
+  const loadingOrders = Boolean(restaurantId && loadedRestaurantId !== restaurantId);
   const filteredOrders = useMemo(() => {
     const query = search.trim().toLowerCase();
-
     return orders.filter((order) => {
-      const matchesStatus =
-        activeFilter === "All" || order.status === activeFilter;
-
-      const matchesSearch =
-        order.id.toLowerCase().includes(query) ||
-        order.customer.toLowerCase().includes(query);
-
+      const matchesStatus = activeFilter === "All" || order.status === activeFilter;
+      const matchesSearch = order.displayId.toLowerCase().includes(query) ||
+        order.items.some((item) => item.toLowerCase().includes(query));
       return matchesStatus && matchesSearch;
     });
   }, [orders, activeFilter, search]);
 
-  const countStatus = (status: OrderStatus) =>
-    orders.filter((order) => order.status === status).length;
+  function countStatus(status: OrderStatus) {
+    return orders.filter((order) => order.status === status).length;
+  }
 
-  function updateStatus(id: string, status: OrderStatus) {
-    setOrders((currentOrders) =>
-      currentOrders.map((order) =>
-        order.id === id ? { ...order, status } : order,
-      ),
-    );
-
-    setSelectedOrder((currentOrder) =>
-      currentOrder?.id === id
-        ? { ...currentOrder, status }
-        : currentOrder,
-    );
+  async function updateStatus(order: Order, nextStatus: OrderStatus) {
+    if (!restaurantId) return;
+    setUpdating(true);
+    setError("");
+    try {
+      const updated = await apiRequest<ApiOrder>(`/orders/${order.id}/status/`, {
+        method: "PATCH",
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const mapped = mapOrder(updated);
+      setOrders((current) => current.map((item) => item.id === mapped.id ? mapped : item));
+      setSelectedOrder(mapped);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to update order status.");
+    } finally {
+      setUpdating(false);
+    }
   }
 
   return (
     <div className="space-y-6">
-      {/* Demo notice */}
-      <div className="flex items-start gap-3 rounded-xl border border-amber-200 bg-amber-50 p-4">
-        <span className="text-lg">ⓘ</span>
+      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <p className="text-sm font-semibold text-amber-900">
-            Demo data
-          </p>
-          <p className="mt-1 text-sm text-amber-800">
-            These are sample orders for testing the interface. Changes
-            are temporary and are not saved to the backend.
-          </p>
+          <p className="text-sm font-medium text-violet-600">ORDER MANAGEMENT</p>
+          <h1 className="mt-2 text-2xl font-bold text-slate-900">Orders</h1>
+          <p className="mt-1 text-sm text-slate-500">Review saved orders and apply valid status transitions.</p>
         </div>
+        <label className="flex items-center gap-3 text-sm text-slate-600">
+          Restaurant
+          <select
+            aria-label="Select restaurant"
+            value={restaurantId ?? ""}
+            disabled={loadingRestaurants || restaurants.length === 0}
+            onChange={(event) => {
+              setError("");
+              setRestaurantId(Number(event.target.value));
+            }}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:border-violet-500"
+          >
+            {restaurants.map((restaurant) => (
+              <option key={restaurant.id} value={restaurant.id}>{restaurant.name}</option>
+            ))}
+          </select>
+        </label>
       </div>
 
-      {/* Summary cards */}
+      {error && (
+        <div role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {error}
+        </div>
+      )}
+      {loadingOrders && <p role="status" className="text-sm text-slate-500">Loading orders…</p>}
+      {!loadingRestaurants && restaurants.length === 0 && !error && (
+        <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-slate-600">
+          No restaurant access is available for this account.
+        </p>
+      )}
+
       <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         {[
-          {
-            label: "Total orders",
-            value: orders.length,
-            icon: "▤",
-            style: "bg-violet-50 text-violet-700",
-          },
-          {
-            label: "Pending",
-            value: countStatus("Pending"),
-            icon: "◷",
-            style: "bg-amber-50 text-amber-700",
-          },
-          {
-            label: "Preparing",
-            value: countStatus("Preparing"),
-            icon: "♨",
-            style: "bg-blue-50 text-blue-700",
-          },
-          {
-            label: "Completed",
-            value: countStatus("Completed"),
-            icon: "✓",
-            style: "bg-emerald-50 text-emerald-700",
-          },
+          { label: "Total orders", value: orders.length, icon: "▤", style: "bg-violet-50 text-violet-700" },
+          { label: "Pending", value: countStatus("PENDING"), icon: "◷", style: "bg-amber-50 text-amber-700" },
+          { label: "Preparing", value: countStatus("PREPARING"), icon: "♨", style: "bg-blue-50 text-blue-700" },
+          { label: "Completed", value: countStatus("COMPLETED"), icon: "✓", style: "bg-emerald-50 text-emerald-700" },
         ].map((stat) => (
-          <article
-            key={stat.label}
-            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-          >
+          <article key={stat.label} className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <div className="flex items-center justify-between">
               <p className="text-sm text-slate-500">{stat.label}</p>
-              <span
-                className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg font-bold ${stat.style}`}
-              >
-                {stat.icon}
-              </span>
+              <span className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg font-bold ${stat.style}`}>{stat.icon}</span>
             </div>
-            <p className="mt-4 text-3xl font-bold text-slate-900">
-              {stat.value}
-            </p>
+            <p className="mt-4 text-3xl font-bold text-slate-900">{stat.value}</p>
           </article>
         ))}
       </section>
 
-      {/* Order list */}
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
         <div className="border-b border-slate-200 p-5 sm:p-6">
           <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
             <div>
-              <h3 className="text-lg font-bold text-slate-900">
-                All orders
-              </h3>
-              <p className="mt-1 text-sm text-slate-500">
-                Search orders and manage their status.
-              </p>
+              <h2 className="text-lg font-bold text-slate-900">All orders</h2>
+              <p className="mt-1 text-sm text-slate-500">Search orders and manage their status.</p>
             </div>
-
             <label className="relative block w-full lg:max-w-sm">
-              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">
-                ⌕
-              </span>
+              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">⌕</span>
               <input
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
-                placeholder="Search order ID or customer..."
+                placeholder="Search order number or items…"
                 className="w-full rounded-xl border border-slate-200 bg-slate-50 py-3 pl-9 pr-4 text-sm outline-none transition focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
               />
             </label>
           </div>
-
-          {/* Status filters */}
           <div className="mt-5 flex gap-2 overflow-x-auto pb-1">
             {statuses.map((status) => {
               const selected = activeFilter === status;
-
               return (
                 <button
+                  type="button"
                   key={status}
                   onClick={() => setActiveFilter(status)}
-                  className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition ${
-                    selected
-                      ? "bg-violet-600 text-white"
-                      : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
-                  }`}
+                  className={`shrink-0 rounded-lg px-4 py-2 text-sm font-medium transition ${selected ? "bg-violet-600 text-white" : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"}`}
                 >
-                  {status}
-                  {status !== "All" && (
-                    <span className="ml-2 opacity-75">
-                      {countStatus(status)}
-                    </span>
-                  )}
+                  {status === "All" ? status : statusLabels[status]}
+                  {status !== "All" && <span className="ml-2 opacity-75">{countStatus(status)}</span>}
                 </button>
               );
             })}
           </div>
         </div>
 
-        {/* Responsive table */}
         <div className="overflow-x-auto">
           <table className="w-full min-w-[850px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
@@ -246,48 +268,25 @@ function Orders() {
                 <th className="px-6 py-4 font-semibold">Action</th>
               </tr>
             </thead>
-
             <tbody className="divide-y divide-slate-100">
               {filteredOrders.map((order) => (
-                <tr
-                  key={order.id}
-                  className="transition hover:bg-slate-50/80"
-                >
+                <tr key={order.id} className="transition hover:bg-slate-50/80">
                   <td className="whitespace-nowrap px-6 py-4">
-                    <p className="font-semibold text-slate-900">
-                      {order.id}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      {order.time}
-                    </p>
+                    <p className="font-semibold text-slate-900">#{order.displayId}</p>
+                    <p className="mt-1 text-xs text-slate-400">{order.time}</p>
                   </td>
-
-                  <td className="whitespace-nowrap px-6 py-4 font-medium text-slate-700">
-                    {order.customer}
-                  </td>
-
-                  <td className="max-w-64 px-6 py-4 text-slate-500">
-                    {order.items.join(", ")}
-                  </td>
-
-                  <td className="whitespace-nowrap px-6 py-4 text-slate-600">
-                    {order.type}
-                  </td>
-
-                  <td className="whitespace-nowrap px-6 py-4 font-semibold text-slate-900">
-                    ₹{order.total.toFixed(2)}
-                  </td>
-
+                  <td className="whitespace-nowrap px-6 py-4 font-medium text-slate-700">Guest / POS order</td>
+                  <td className="max-w-64 px-6 py-4 text-slate-500">{order.items.join(", ")}</td>
+                  <td className="whitespace-nowrap px-6 py-4 text-slate-600">{order.type}</td>
+                  <td className="whitespace-nowrap px-6 py-4 font-semibold text-slate-900">₹{order.total.toFixed(2)}</td>
                   <td className="whitespace-nowrap px-6 py-4">
-                    <span
-                      className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset ${statusStyles[order.status]}`}
-                    >
-                      {order.status}
+                    <span className={`inline-flex rounded-full px-3 py-1 text-xs font-semibold ring-1 ring-inset ${statusStyles[order.status]}`}>
+                      {statusLabels[order.status]}
                     </span>
                   </td>
-
                   <td className="whitespace-nowrap px-6 py-4">
                     <button
+                      type="button"
                       onClick={() => setSelectedOrder(order)}
                       className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 transition hover:border-violet-300 hover:text-violet-700"
                     >
@@ -296,15 +295,12 @@ function Orders() {
                   </td>
                 </tr>
               ))}
-
-              {filteredOrders.length === 0 && (
+              {!loadingOrders && filteredOrders.length === 0 && (
                 <tr>
                   <td colSpan={7} className="px-6 py-16 text-center">
-                    <p className="font-semibold text-slate-700">
-                      No orders found
-                    </p>
+                    <p className="font-semibold text-slate-700">{orders.length ? "No orders found" : "No orders yet"}</p>
                     <p className="mt-1 text-sm text-slate-500">
-                      Try another search or status filter.
+                      {orders.length ? "Try another search or status filter." : "New customer and POS orders will appear here."}
                     </p>
                   </td>
                 </tr>
@@ -312,13 +308,11 @@ function Orders() {
             </tbody>
           </table>
         </div>
-
         <div className="border-t border-slate-200 px-6 py-4 text-xs text-slate-500">
-          Showing {filteredOrders.length} of {orders.length} sample orders
+          Showing {filteredOrders.length} of {orders.length} restaurant orders
         </div>
       </section>
 
-      {/* Order details modal */}
       {selectedOrder && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
@@ -333,104 +327,48 @@ function Orders() {
           >
             <div className="flex items-start justify-between gap-4">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-wider text-violet-600">
-                  Order details
-                </p>
-                <h3
-                  id="order-modal-title"
-                  className="mt-2 text-xl font-bold text-slate-900"
-                >
-                  {selectedOrder.id}
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  {selectedOrder.time}
-                </p>
+                <p className="text-xs font-semibold uppercase tracking-wider text-violet-600">Order details</p>
+                <h2 id="order-modal-title" className="mt-2 text-xl font-bold text-slate-900">#{selectedOrder.displayId}</h2>
+                <p className="mt-1 text-sm text-slate-500">{selectedOrder.time}</p>
               </div>
-
-              <button
-                aria-label="Close order details"
-                onClick={() => setSelectedOrder(null)}
-                className="rounded-lg px-3 py-2 text-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              >
-                ×
-              </button>
+              <button type="button" aria-label="Close order details" onClick={() => setSelectedOrder(null)} className="rounded-lg px-3 py-2 text-lg text-slate-400 hover:bg-slate-100 hover:text-slate-700">×</button>
             </div>
-
             <div className="mt-6 space-y-4">
-              <div className="rounded-xl bg-slate-50 p-4">
-                <p className="text-xs text-slate-500">Customer</p>
-                <p className="mt-1 font-semibold text-slate-900">
-                  {selectedOrder.customer}
-                </p>
-              </div>
-
               <div>
-                <p className="mb-3 text-sm font-semibold text-slate-800">
-                  Items ordered
-                </p>
-
+                <p className="mb-3 text-sm font-semibold text-slate-800">Items ordered</p>
                 <ul className="space-y-3">
                   {selectedOrder.items.map((item) => (
-                    <li
-                      key={item}
-                      className="flex items-center gap-3 text-sm text-slate-600"
-                    >
-                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-700">
-                        •
-                      </span>
+                    <li key={item} className="flex items-center gap-3 text-sm text-slate-600">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-violet-50 text-violet-700">•</span>
                       {item}
                     </li>
                   ))}
                 </ul>
               </div>
-
               <div className="flex items-center justify-between border-t border-slate-200 pt-4">
-                <span className="font-semibold text-slate-700">
-                  Order total
-                </span>
-                <span className="text-xl font-bold text-slate-900">
-                  ₹{selectedOrder.total.toFixed(2)}
-                </span>
+                <span className="font-semibold text-slate-700">Order total</span>
+                <span className="text-xl font-bold text-slate-900">₹{selectedOrder.total.toFixed(2)}</span>
               </div>
-
               <div>
-                <label
-                  htmlFor="order-status"
-                  className="mb-2 block text-sm font-semibold text-slate-700"
-                >
-                  Update order status
-                </label>
-
+                <label htmlFor="order-status" className="mb-2 block text-sm font-semibold text-slate-700">Update order status</label>
                 <select
                   id="order-status"
                   value={selectedOrder.status}
-                  onChange={(event) =>
-                    updateStatus(
-                      selectedOrder.id,
-                      event.target.value as OrderStatus,
-                    )
-                  }
-                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100"
+                  disabled={updating || allowedTransitions[selectedOrder.status].length === 0}
+                  onChange={(event) => void updateStatus(selectedOrder, event.target.value as OrderStatus)}
+                  className="w-full rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100 disabled:bg-slate-50"
                 >
-                  {statuses
-                    .filter((status) => status !== "All")
-                    .map((status) => (
-                      <option key={status} value={status}>
-                        {status}
-                      </option>
-                    ))}
+                  <option value={selectedOrder.status}>{statusLabels[selectedOrder.status]}</option>
+                  {allowedTransitions[selectedOrder.status].map((status) => (
+                    <option key={status} value={status}>{statusLabels[status]}</option>
+                  ))}
                 </select>
-
                 <p className="mt-2 text-xs text-slate-400">
-                  This status change is temporary demo state.
+                  Status changes are validated and saved by the server.
                 </p>
               </div>
             </div>
-
-            <button
-              onClick={() => setSelectedOrder(null)}
-              className="mt-6 w-full rounded-xl bg-violet-600 py-3 text-sm font-semibold text-white transition hover:bg-violet-700"
-            >
+            <button type="button" onClick={() => setSelectedOrder(null)} className="mt-6 w-full rounded-xl bg-violet-600 py-3 text-sm font-semibold text-white transition hover:bg-violet-700">
               Close details
             </button>
           </section>

@@ -1,28 +1,35 @@
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
+import { apiRequest } from "../api/apiClient";
 
 type InventoryItem = {
   id: number;
+  restaurant: number;
   name: string;
   category: string;
   unit: string;
-  stock: number;
-  minimum: number;
-  cost: number;
-  supplier: string;
+  current_quantity: string;
+  minimum_quantity: string;
+  unit_cost: string;
+  supplier: number | null;
+  supplier_name: string | null;
+  sku: string;
+  is_active: boolean;
 };
 
-const initialItems: InventoryItem[] = [
-  { id: 1, name: "Basmati Rice", category: "Grains", unit: "kg", stock: 28, minimum: 10, cost: 85, supplier: "Fresh Farm Supplies" },
-  { id: 2, name: "Cooking Oil", category: "Essentials", unit: "L", stock: 7, minimum: 12, cost: 145, supplier: "Daily Needs Co." },
-  { id: 3, name: "Tomatoes", category: "Vegetables", unit: "kg", stock: 5, minimum: 8, cost: 32, supplier: "Green Basket" },
-  { id: 4, name: "Paneer", category: "Dairy", unit: "kg", stock: 9, minimum: 4, cost: 320, supplier: "Fresh Farm Supplies" },
-  { id: 5, name: "Wheat Flour", category: "Grains", unit: "kg", stock: 22, minimum: 10, cost: 42, supplier: "Daily Needs Co." },
-  { id: 6, name: "Onions", category: "Vegetables", unit: "kg", stock: 3, minimum: 8, cost: 38, supplier: "Green Basket" },
-  { id: 7, name: "Milk", category: "Dairy", unit: "L", stock: 16, minimum: 6, cost: 58, supplier: "Morning Dairy" },
-  { id: 8, name: "Chilli Powder", category: "Spices", unit: "kg", stock: 4, minimum: 3, cost: 210, supplier: "Spice Route" },
-];
+type Restaurant = { id: number; name: string };
+type Supplier = { id: number; name: string };
+type StockMovement = {
+  id: number;
+  ingredient_name: string;
+  movement_type: string;
+  quantity_delta: string;
+  unit: string;
+  reason: string;
+  username: string | null;
+  created_at: string;
+};
 
 const categories = [
   "All categories",
@@ -42,48 +49,104 @@ const inputClass =
   "w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100";
 
 export default function Inventory() {
-  const [items, setItems] = useState<InventoryItem[]>(initialItems);
+  const [items, setItems] = useState<InventoryItem[]>([]);
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [movements, setMovements] = useState<StockMovement[]>([]);
+  const [restaurantId, setRestaurantId] = useState("");
   const [search, setSearch] = useState("");
   const [category, setCategory] = useState("All categories");
   const [stockFilter, setStockFilter] = useState("All stock");
   const [showAddForm, setShowAddForm] = useState(false);
   const [notice, setNotice] = useState("");
+  const [loading, setLoading] = useState(true);
 
   const [newItem, setNewItem] = useState({
     name: "",
     category: "Grains",
     unit: "kg",
-    stock: "",
-    minimum: "",
-    cost: "",
+    opening_quantity: "",
+    minimum_quantity: "",
+    unit_cost: "",
     supplier: "",
   });
 
+  useEffect(() => {
+    apiRequest<Restaurant[]>("/restaurants/?include_inactive=true")
+      .then((data) => {
+        setRestaurants(data);
+        if (data.length > 0) setRestaurantId(String(data[0].id));
+        else setLoading(false);
+      })
+      .catch((error: unknown) => {
+        setNotice(error instanceof Error ? error.message : "Unable to load restaurants.");
+        setLoading(false);
+      });
+  }, []);
+
+  useEffect(() => {
+    if (!restaurantId) return;
+
+    let cancelled = false;
+    const timer = window.setTimeout(() => {
+      if (cancelled) return;
+
+      setLoading(true);
+      const query = `?restaurant_id=${encodeURIComponent(restaurantId)}&include_inactive=true`;
+      Promise.all([
+        apiRequest<InventoryItem[]>(`/inventory/ingredients/${query}`),
+        apiRequest<Supplier[]>(`/suppliers/${query}`),
+        apiRequest<StockMovement[]>(`/inventory/movements/?restaurant_id=${encodeURIComponent(restaurantId)}`),
+      ])
+        .then(([ingredients, supplierData, movementData]) => {
+          if (cancelled) return;
+          setItems(ingredients);
+          setSuppliers(supplierData);
+          setMovements(movementData.slice(0, 8));
+        })
+        .catch((error: unknown) => {
+          if (cancelled) return;
+          setNotice(error instanceof Error ? error.message : "Unable to load inventory.");
+        })
+        .finally(() => {
+          if (!cancelled) setLoading(false);
+        });
+    }, 0);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [restaurantId]);
+
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      const matchesSearch = `${item.name} ${item.supplier}`
+      const matchesSearch = `${item.name} ${item.supplier_name ?? ""}`
         .toLowerCase()
         .includes(search.toLowerCase());
 
       const matchesCategory =
         category === "All categories" || item.category === category;
 
+      const stock = Number(item.current_quantity);
+      const minimum = Number(item.minimum_quantity);
       const matchesStock =
         stockFilter === "All stock" ||
         (stockFilter === "Low stock"
-          ? item.stock <= item.minimum
-          : item.stock > item.minimum);
+          ? stock <= minimum
+          : stock > minimum);
 
       return matchesSearch && matchesCategory && matchesStock;
     });
   }, [items, search, category, stockFilter]);
 
   const lowStockCount = items.filter(
-    (item) => item.stock <= item.minimum
+    (item) => Number(item.current_quantity) <= Number(item.minimum_quantity)
   ).length;
 
   const inventoryValue = items.reduce(
-    (total, item) => total + item.stock * item.cost,
+    (total, item) =>
+      total + Number(item.current_quantity) * Number(item.unit_cost),
     0
   );
 
@@ -91,39 +154,75 @@ export default function Inventory() {
     setNotice(message);
   }
 
-  function updateStock(id: number, amount: number) {
-    setItems((current) =>
-      current.map((item) =>
-        item.id === id
-          ? {
-              ...item,
-              stock: Math.max(0, item.stock + amount),
-            }
-          : item
-      )
-    );
-
-    showNotice(
-      amount > 0
-        ? "Stock quantity increased."
-        : "Stock quantity decreased."
-    );
+  async function reloadInventory() {
+    if (!restaurantId) return;
+    const query = `?restaurant_id=${encodeURIComponent(restaurantId)}&include_inactive=true`;
+    const [ingredients, movementData] = await Promise.all([
+      apiRequest<InventoryItem[]>(`/inventory/ingredients/${query}`),
+      apiRequest<StockMovement[]>(`/inventory/movements/?restaurant_id=${encodeURIComponent(restaurantId)}`),
+    ]);
+    setItems(ingredients);
+    setMovements(movementData.slice(0, 8));
   }
 
-  function addItem(event: FormEvent<HTMLFormElement>) {
+  async function updateStock(id: number, amount: number) {
+    const quantity = window.prompt("Quantity to record:", "1.000");
+    if (quantity === null) return;
+    const parsedQuantity = Number(quantity);
+    if (!Number.isFinite(parsedQuantity) || parsedQuantity <= 0) {
+      showNotice("Enter a quantity greater than zero.");
+      return;
+    }
+    const reason = window.prompt(
+      amount > 0 ? "Reason for receiving stock:" : "Reason for recording wastage:",
+    );
+    if (!reason?.trim()) {
+      showNotice("A reason is required to record stock movement.");
+      return;
+    }
+    try {
+      await apiRequest(`/inventory/ingredients/${id}/${amount > 0 ? "receive" : "wastage"}/`, {
+        method: "POST",
+        body: JSON.stringify({
+          quantity: parsedQuantity.toFixed(3),
+          reason: reason.trim(),
+          idempotency_key: crypto.randomUUID(),
+        }),
+      });
+      await reloadInventory();
+      showNotice(amount > 0 ? "Stock receipt recorded." : "Wastage recorded.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to update stock.");
+    }
+  }
+
+  async function toggleIngredient(item: InventoryItem) {
+    try {
+      await apiRequest(`/inventory/ingredients/${item.id}/`, {
+        method: "PATCH",
+        body: JSON.stringify({ is_active: !item.is_active }),
+      });
+      await reloadInventory();
+      showNotice(item.is_active ? "Ingredient deactivated." : "Ingredient reactivated.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to update ingredient.");
+    }
+  }
+
+  async function addItem(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    const stock = Number(newItem.stock);
-    const minimum = Number(newItem.minimum);
-    const cost = Number(newItem.cost);
+    const openingQuantity = Number(newItem.opening_quantity || 0);
+    const minimum = Number(newItem.minimum_quantity);
+    const cost = Number(newItem.unit_cost);
 
     if (
       !newItem.name.trim() ||
-      !newItem.supplier.trim() ||
-      !Number.isFinite(stock) ||
+      !restaurantId ||
+      !Number.isFinite(openingQuantity) ||
       !Number.isFinite(minimum) ||
       !Number.isFinite(cost) ||
-      stock < 0 ||
+      openingQuantity < 0 ||
       minimum < 0 ||
       cost < 0
     ) {
@@ -131,31 +230,35 @@ export default function Inventory() {
       return;
     }
 
-    const item: InventoryItem = {
-      id: Math.max(0, ...items.map((existing) => existing.id)) + 1,
-      name: newItem.name.trim(),
-      category: newItem.category,
-      unit: newItem.unit,
-      stock,
-      minimum,
-      cost,
-      supplier: newItem.supplier.trim(),
-    };
-
-    setItems((current) => [...current, item]);
-
-    setNewItem({
-      name: "",
-      category: "Grains",
-      unit: "kg",
-      stock: "",
-      minimum: "",
-      cost: "",
-      supplier: "",
-    });
-
-    setShowAddForm(false);
-    showNotice("Inventory item added successfully.");
+    try {
+      await apiRequest<InventoryItem>("/inventory/ingredients/", {
+        method: "POST",
+        body: JSON.stringify({
+          restaurant: Number(restaurantId),
+          name: newItem.name.trim(),
+          category: newItem.category,
+          unit: newItem.unit,
+          opening_quantity: openingQuantity.toFixed(3),
+          minimum_quantity: minimum.toFixed(3),
+          unit_cost: cost.toFixed(2),
+          supplier: newItem.supplier ? Number(newItem.supplier) : null,
+        }),
+      });
+      await reloadInventory();
+      setNewItem({
+        name: "",
+        category: "Grains",
+        unit: "kg",
+        opening_quantity: "",
+        minimum_quantity: "",
+        unit_cost: "",
+        supplier: "",
+      });
+      setShowAddForm(false);
+      showNotice("Inventory item added successfully.");
+    } catch (error) {
+      showNotice(error instanceof Error ? error.message : "Unable to add ingredient.");
+    }
   }
 
   return (
@@ -176,12 +279,29 @@ export default function Inventory() {
           </p>
         </div>
 
-        <button
-          onClick={() => setShowAddForm((value) => !value)}
-          className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700"
-        >
-          {showAddForm ? "Cancel" : "+ Add inventory item"}
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <select
+            aria-label="Select restaurant"
+            value={restaurantId}
+            onChange={(event) => setRestaurantId(event.target.value)}
+            className={inputClass}
+            disabled={restaurants.length === 0}
+          >
+            {restaurants.length === 0 && <option value="">No assigned restaurant</option>}
+            {restaurants.map((restaurant) => (
+              <option key={restaurant.id} value={restaurant.id}>
+                {restaurant.name}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={() => setShowAddForm((value) => !value)}
+            disabled={!restaurantId}
+            className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {showAddForm ? "Cancel" : "+ Add inventory item"}
+          </button>
+        </div>
       </div>
 
       {/* Notification */}
@@ -288,21 +408,21 @@ export default function Inventory() {
                 className={inputClass}
               >
                 <option value="kg">Kilograms (kg)</option>
+                <option value="g">Grams (g)</option>
                 <option value="L">Litres (L)</option>
-                <option value="pcs">Pieces</option>
-                <option value="pack">Packs</option>
+                <option value="ml">Millilitres (ml)</option>
+                <option value="each">Each</option>
               </select>
             </FormField>
 
-            <FormField label="Current quantity">
+            <FormField label="Opening quantity">
               <input
-                required
                 type="number"
                 min="0"
-                step="any"
-                value={newItem.stock}
+                step="0.001"
+                value={newItem.opening_quantity}
                 onChange={(e) =>
-                  setNewItem({ ...newItem, stock: e.target.value })
+                  setNewItem({ ...newItem, opening_quantity: e.target.value })
                 }
                 placeholder="0"
                 className={inputClass}
@@ -314,10 +434,10 @@ export default function Inventory() {
                 required
                 type="number"
                 min="0"
-                step="any"
-                value={newItem.minimum}
+                step="0.001"
+                value={newItem.minimum_quantity}
                 onChange={(e) =>
-                  setNewItem({ ...newItem, minimum: e.target.value })
+                  setNewItem({ ...newItem, minimum_quantity: e.target.value })
                 }
                 placeholder="0"
                 className={inputClass}
@@ -329,10 +449,10 @@ export default function Inventory() {
                 required
                 type="number"
                 min="0"
-                step="any"
-                value={newItem.cost}
+                step="0.01"
+                value={newItem.unit_cost}
                 onChange={(e) =>
-                  setNewItem({ ...newItem, cost: e.target.value })
+                  setNewItem({ ...newItem, unit_cost: e.target.value })
                 }
                 placeholder="0.00"
                 className={inputClass}
@@ -340,15 +460,20 @@ export default function Inventory() {
             </FormField>
 
             <FormField label="Supplier">
-              <input
-                required
+              <select
                 value={newItem.supplier}
                 onChange={(e) =>
                   setNewItem({ ...newItem, supplier: e.target.value })
                 }
-                placeholder="Supplier name"
                 className={inputClass}
-              />
+              >
+                <option value="">No supplier</option>
+                {suppliers.map((supplier) => (
+                  <option key={supplier.id} value={supplier.id}>
+                    {supplier.name}
+                  </option>
+                ))}
+              </select>
             </FormField>
 
             <div className="flex items-end">
@@ -424,11 +549,14 @@ export default function Inventory() {
 
             <tbody className="divide-y divide-slate-100">
               {filteredItems.map((item) => {
-                const isLow = item.stock <= item.minimum;
+                const stock = Number(item.current_quantity);
+                const minimum = Number(item.minimum_quantity);
+                const cost = Number(item.unit_cost);
+                const isLow = stock <= minimum;
 
                 const progress =
-                  item.minimum > 0
-                    ? Math.min(100, (item.stock / (item.minimum * 2)) * 100)
+                  minimum > 0
+                    ? Math.min(100, (stock / (minimum * 2)) * 100)
                     : 100;
 
                 return (
@@ -442,7 +570,7 @@ export default function Inventory() {
                       </div>
 
                       <div className="mt-0.5 text-xs text-slate-500">
-                        SKU-{String(item.id).padStart(4, "0")}
+                        {item.sku || `ING-${String(item.id).padStart(4, "0")}`}
                       </div>
                     </td>
 
@@ -459,7 +587,7 @@ export default function Inventory() {
                             isLow ? "text-rose-600" : "text-slate-800"
                           }`}
                         >
-                          {item.stock} {item.unit}
+                          {stock.toFixed(3)} {item.unit}
                         </span>
 
                         <span
@@ -483,41 +611,51 @@ export default function Inventory() {
                       </div>
 
                       <div className="mt-1 text-xs text-slate-400">
-                        Minimum: {item.minimum} {item.unit}
+                        Minimum: {minimum.toFixed(3)} {item.unit}
                       </div>
                     </td>
 
                     <td className="px-5 py-4 text-slate-600">
-                      {money(item.cost)}
+                      {money(cost)}
                     </td>
 
                     <td className="px-5 py-4 font-medium text-slate-800">
-                      {money(item.stock * item.cost)}
+                      {money(stock * cost)}
                     </td>
 
                     <td className="px-5 py-4 text-slate-600">
-                      {item.supplier}
+                      {item.supplier_name || "—"}
                     </td>
 
                     <td className="px-5 py-4">
                       <div className="flex justify-end gap-2">
+                        {item.is_active ? (
+                          <>
+                            <button
+                              type="button"
+                              aria-label={`Record wastage for ${item.name}`}
+                              onClick={() => updateStock(item.id, -1)}
+                              disabled={stock <= 0}
+                              className="h-8 w-8 rounded-lg border border-slate-200 font-bold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                            >
+                              −
+                            </button>
+                            <button
+                              type="button"
+                              aria-label={`Receive stock for ${item.name}`}
+                              onClick={() => updateStock(item.id, 1)}
+                              className="h-8 w-8 rounded-lg border border-violet-200 bg-violet-50 font-bold text-violet-700 hover:bg-violet-100"
+                            >
+                              +
+                            </button>
+                          </>
+                        ) : null}
                         <button
                           type="button"
-                          aria-label={`Deduct one ${item.name}`}
-                          onClick={() => updateStock(item.id, -1)}
-                          disabled={item.stock <= 0}
-                          className="h-8 w-8 rounded-lg border border-slate-200 font-bold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          onClick={() => toggleIngredient(item)}
+                          className="rounded-lg border border-slate-200 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-100"
                         >
-                          −
-                        </button>
-
-                        <button
-                          type="button"
-                          aria-label={`Add one ${item.name}`}
-                          onClick={() => updateStock(item.id, 1)}
-                          className="h-8 w-8 rounded-lg border border-violet-200 bg-violet-50 font-bold text-violet-700 hover:bg-violet-100"
-                        >
-                          +
+                          {item.is_active ? "Deactivate" : "Reactivate"}
                         </button>
                       </div>
                     </td>
@@ -548,8 +686,38 @@ export default function Inventory() {
           </span>
 
           <span>
-            Demo only: changes are not saved to the database.
+            Stock changes are saved with an audit trail.
           </span>
+        </div>
+      </section>
+
+      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
+        <div className="border-b border-slate-100 p-4">
+          <h3 className="font-bold text-slate-900">Recent stock movements</h3>
+          <p className="mt-1 text-sm text-slate-500">Latest receipts, adjustments, and wastage.</p>
+        </div>
+        <div className="divide-y divide-slate-100">
+          {movements.map((movement) => (
+            <div key={movement.id} className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 text-sm">
+              <div>
+                <span className="font-medium text-slate-800">{movement.ingredient_name}</span>
+                <span className="ml-2 text-slate-500">{movement.reason}</span>
+              </div>
+              <div className="text-right">
+                <span className={Number(movement.quantity_delta) > 0 ? "font-semibold text-emerald-700" : "font-semibold text-rose-700"}>
+                  {Number(movement.quantity_delta) > 0 ? "+" : ""}
+                  {movement.quantity_delta} {movement.unit}
+                </span>
+                <div className="text-xs text-slate-500">
+                  {new Date(movement.created_at).toLocaleString()} · {movement.username || "System"}
+                </div>
+              </div>
+            </div>
+          ))}
+          {!loading && movements.length === 0 && (
+            <p className="px-5 py-8 text-center text-sm text-slate-500">No stock movements recorded.</p>
+          )}
+          {loading && <p className="px-5 py-8 text-center text-sm text-slate-500">Loading inventory…</p>}
         </div>
       </section>
     </div>
