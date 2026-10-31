@@ -3,7 +3,7 @@ import { useState } from "react";
 import MenuPage from "./pages/Menu";
 import Categories from "./pages/Categories";
 import Restaurants from "./pages/Restaurants";
-import Orders from "./pages/Orders";
+import Orders from "./pages/orders";
 import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
 import KitchenDisplay from "./pages/KitchenDisplay";
@@ -30,7 +30,6 @@ const navigation = [
   { name: "Ratings", symbol: "⭐", group: "MANAGEMENT" },
   { name: "Reports", symbol: "📊", group: "MANAGEMENT" },
   { name: "Settings", symbol: "⚙", group: "SYSTEM" },
-  { name: "Inventory", symbol: "▣", group: "MANAGEMENT" },
 ];
 
 function App() {
@@ -43,6 +42,13 @@ function App() {
     Menu: "Manage menu items, prices, and availability.",
     Categories: "Organize your menu into categories.",
     Inventory: "Monitor stock levels and inventory.",
+    "Kitchen Display": "View and manage orders being prepared.",
+    "Live Display": "Show live order updates to customers.",
+    "Customer Ordering": "Preview the customer ordering experience.",
+    POS: "Process in-person sales at the point of sale.",
+    "Menu Voting": "Manage customer menu votes.",
+    Ratings: "Review customer ratings and feedback.",
+    Reports: "Review restaurant performance reports.",
     Settings: "Manage your application preferences.",
   };
 
@@ -62,28 +68,25 @@ function App() {
 
       case "Orders":
         return <Orders />;
-      
       case "Settings":
-         return <Settings />;
+        return <Settings />;
       case "Reports":
         return <Reports />;
-      case "KitchenDisplay":
-        return <KitchenDisplay />;  
-      case "CustomerOrdering":
-        return <CustomerOrdering />;  
+      case "Kitchen Display":
+        return <KitchenDisplay />;
+      case "Customer Ordering":
+        return <CustomerOrdering />;
       case "POS":
-        return <POS />; 
-      case "MenuVoting":
+        return <POS />;
+      case "Menu Voting":
         return <MenuVoting />;
-      case "CustomerRatings":
-        return <CustomerRatings />;  
-      case "LiveOrderDisplay":
-        return <LiveOrderDisplay />;  
-      case "Inventory": 
+      case "Ratings":
+        return <CustomerRatings />;
+      case "Live Display":
+        return <LiveOrderDisplay />;
+      case "Inventory":
         return <Inventory />;
-
-    
-
+      default:
         return (
           <section className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
             <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-violet-50 text-2xl text-violet-700">
@@ -100,9 +103,6 @@ function App() {
             </p>
           </section>
         );
-
-      default:
-        return null;
     }
   };
 
