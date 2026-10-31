@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 const API_URL = "http://127.0.0.1:8001/api";
 
+const WS_URL = "ws://127.0.0.1:8001/ws/orders/";
+
 type ApiStatus =
   | "PENDING"
   | "CONFIRMED"
@@ -47,7 +49,7 @@ type KitchenOrder = {
   customer: string;
   items: { name: string; quantity: number; note?: string }[];
   status: ApiStatus;
-  minutesAgo: number;
+  createdAt: number;
   orderType: string;
 };
 
@@ -85,9 +87,6 @@ const actionLabels: Partial<Record<ApiStatus, string>> = {
 
 function mapOrder(order: ApiOrder): KitchenOrder {
   const createdTime = new Date(order.created_at).getTime();
-  const minutesAgo = Number.isNaN(createdTime)
-    ? 0
-    : Math.max(0, Math.floor((Date.now() - createdTime) / 60000));
 
   return {
     id: order.id,
@@ -104,7 +103,7 @@ function mapOrder(order: ApiOrder): KitchenOrder {
       note: item.note,
     })),
     status: order.status,
-    minutesAgo,
+    createdAt: Number.isNaN(createdTime) ? Date.now() : createdTime,
     orderType:
       order.order_type === "TAKEAWAY" ? "Takeaway" : "Dine-in",
   };
@@ -118,6 +117,8 @@ export default function KitchenDisplay() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [updatingIds, setUpdatingIds] = useState<number[]>([]);
+  const [wsConnected, setWsConnected] = useState(false);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
 
   const fetchOrders = useCallback(async (showLoading = false) => {
     if (showLoading) setLoading(true);
@@ -149,12 +150,75 @@ export default function KitchenDisplay() {
   }, []);
 
   useEffect(() => {
-    const intervalId = window.setInterval(() => {
-      void fetchOrders();
-    }, 5000);
+  let socket: WebSocket | null = null;
+  let reconnectTimer: number | undefined;
+  let disposed = false;
 
-    return () => window.clearInterval(intervalId);
-}, [fetchOrders]);
+  function connect() {
+    if (disposed) return;
+
+    socket = new WebSocket(WS_URL);
+
+    socket.onopen = () => {
+      setWsConnected(true);
+    };
+
+    socket.onmessage = (message: MessageEvent) => {
+      try {
+        const event = JSON.parse(message.data) as {
+          event: string;
+          order: ApiOrder;
+        };
+
+        if (
+          (event.event === "order.created" ||
+            event.event === "order.updated") &&
+          event.order
+        ) {
+          const updatedOrder = mapOrder(event.order);
+
+          setOrders((previousOrders) => {
+            const exists = previousOrders.some(
+              (order) => order.id === updatedOrder.id,
+            );
+
+            if (exists) {
+              return previousOrders.map((order) =>
+                order.id === updatedOrder.id
+                  ? updatedOrder
+                  : order,
+              );
+            }
+
+            return [updatedOrder, ...previousOrders];
+          });
+        }
+      } catch (error) {
+        console.error("Invalid WebSocket message:", error);
+      }
+    };
+
+    socket.onclose = () => {
+      setWsConnected(false);
+
+      if (!disposed) {
+        reconnectTimer = window.setTimeout(connect, 3000);
+      }
+    };
+
+    socket.onerror = () => {
+      socket?.close();
+    };
+  }
+
+  connect();
+
+  return () => {
+    disposed = true;
+    window.clearTimeout(reconnectTimer);
+    socket?.close();
+  };
+}, []);
 
 useEffect(() => {
   const timeoutId = window.setTimeout(() => {
@@ -163,6 +227,14 @@ useEffect(() => {
 
   return () => window.clearTimeout(timeoutId);
 }, [fetchOrders]);
+
+useEffect(() => {
+  const timer = window.setInterval(() => {
+    setCurrentTime(Date.now());
+  }, 60_000);
+
+  return () => window.clearInterval(timer);
+}, []);
 
   const counts = useMemo(
     () => ({
@@ -246,7 +318,8 @@ useEffect(() => {
             Kitchen Display
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Live orders from POS · Refreshes every 5 seconds
+            Live orders from POS ·{" "}
+            {wsConnected ? "Real-time connection active" : "Connecting to real-time updates..."}
           </p>
         </div>
 
@@ -352,11 +425,21 @@ useEffect(() => {
       ) : (
         <div className="grid gap-5 md:grid-cols-2 2xl:grid-cols-3">
           {visibleOrders.map((order) => {
-            const isLate =
-              order.minutesAgo >= 10 &&
+            const elapsedMinutes = Math.max(
+              0,
+              Math.floor((currentTime - order.createdAt) / 60_000),
+            );
+            const isActiveOrder =
               order.status !== "READY" &&
               order.status !== "COMPLETED" &&
               order.status !== "CANCELLED";
+            const urgency = isActiveOrder
+              ? elapsedMinutes >= 10
+                ? "urgent"
+                : elapsedMinutes >= 5
+                  ? "warning"
+                  : "normal"
+              : "normal";
 
             const actionLabel = actionLabels[order.status];
 
@@ -364,7 +447,11 @@ useEffect(() => {
               <article
                 key={order.id}
                 className={`overflow-hidden rounded-2xl border bg-white shadow-sm ${
-                  isLate ? "border-amber-300" : "border-slate-200"
+                  urgency === "urgent"
+                    ? "border-rose-300"
+                    : urgency === "warning"
+                      ? "border-amber-300"
+                      : "border-slate-200"
                 }`}
               >
                 <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-5">
@@ -394,13 +481,19 @@ useEffect(() => {
                     </span>
                     <span
                       className={`rounded-lg px-2.5 py-1.5 font-medium ${
-                        isLate
-                          ? "bg-amber-50 text-amber-700"
-                          : "bg-slate-100 text-slate-600"
+                        urgency === "urgent"
+                          ? "bg-rose-50 text-rose-700"
+                          : urgency === "warning"
+                            ? "bg-amber-50 text-amber-700"
+                            : "bg-slate-100 text-slate-600"
                       }`}
                     >
-                      {order.minutesAgo} min ago
-                      {isLate ? " · Check delay" : ""}
+                      {elapsedMinutes} min ago
+                      {urgency === "urgent"
+                        ? " · Urgent"
+                        : urgency === "warning"
+                          ? " · Warning"
+                          : ""}
                     </span>
                   </div>
 
@@ -470,7 +563,8 @@ useEffect(() => {
       )}
 
       <p className="text-center text-xs text-slate-400">
-        Kitchen Display System · Connected to Django REST API
+        Kitchen Display System ·{" "}
+        {wsConnected ? "WebSocket connected" : "WebSocket disconnected"}
       </p>
     </div>
   );

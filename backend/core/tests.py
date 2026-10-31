@@ -1,6 +1,13 @@
+
 from rest_framework.test import APITestCase
 
-from .models import MenuCategory, MenuItem, Order, OrderItem, Restaurant
+from .models import (
+    MenuCategory,
+    MenuItem,
+    Order,
+    OrderItem,
+    Restaurant,
+)
 
 
 class OrderApiTests(APITestCase):
@@ -9,10 +16,12 @@ class OrderApiTests(APITestCase):
             name="Test Restaurant",
             address="1 Test Street",
         )
+
         self.category = MenuCategory.objects.create(
             restaurant=self.restaurant,
             name="Test Category",
         )
+
         self.menu_item = MenuItem.objects.create(
             category=self.category,
             name="Test Item",
@@ -39,7 +48,10 @@ class OrderApiTests(APITestCase):
         self.assertEqual(Order.objects.count(), 1)
         self.assertEqual(OrderItem.objects.count(), 1)
         self.assertEqual(response.data["total_amount"], "25.00")
-        self.assertEqual(response.data["items"][0]["item_name"], "Test Item")
+        self.assertEqual(
+            response.data["items"][0]["item_name"],
+            "Test Item",
+        )
 
         list_response = self.client.get("/api/orders/")
 
@@ -55,7 +67,9 @@ class OrderApiTests(APITestCase):
         )
 
     def test_order_status_update_persists(self):
-        order = Order.objects.create(restaurant=self.restaurant)
+        order = Order.objects.create(
+            restaurant=self.restaurant,
+        )
 
         response = self.client.patch(
             f"/api/orders/{order.id}/status/",
@@ -64,18 +78,25 @@ class OrderApiTests(APITestCase):
         )
 
         self.assertEqual(response.status_code, 200)
+
         order.refresh_from_db()
-        self.assertEqual(order.status, Order.OrderStatus.CONFIRMED)
+
+        self.assertEqual(
+            order.status,
+            Order.OrderStatus.CONFIRMED,
+        )
 
     def test_rejects_menu_item_from_another_restaurant(self):
         other_restaurant = Restaurant.objects.create(
             name="Other Restaurant",
             address="2 Test Street",
         )
+
         other_category = MenuCategory.objects.create(
             restaurant=other_restaurant,
             name="Other Category",
         )
+
         other_item = MenuItem.objects.create(
             category=other_category,
             name="Other Item",
@@ -100,3 +121,45 @@ class OrderApiTests(APITestCase):
         self.assertEqual(response.status_code, 400)
         self.assertEqual(Order.objects.count(), 0)
         self.assertEqual(OrderItem.objects.count(), 0)
+
+    def test_rejects_invalid_order_status(self):
+        order = Order.objects.create(
+            restaurant=self.restaurant,
+            status=Order.OrderStatus.PENDING,
+        )
+
+        response = self.client.patch(
+            f"/api/orders/{order.id}/status/",
+            {"status": "INVALID_STATUS"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        order.refresh_from_db()
+
+        self.assertEqual(
+            order.status,
+            Order.OrderStatus.PENDING,
+        )
+
+    def test_rejects_skipping_order_status(self):
+        order = Order.objects.create(
+            restaurant=self.restaurant,
+            status=Order.OrderStatus.CONFIRMED,
+        )
+
+        response = self.client.patch(
+            f"/api/orders/{order.id}/status/",
+            {"status": "COMPLETED"},
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 400)
+
+        order.refresh_from_db()
+
+        self.assertEqual(
+            order.status,
+            Order.OrderStatus.CONFIRMED,
+        )

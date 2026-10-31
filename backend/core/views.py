@@ -1,20 +1,32 @@
 
 from django.shortcuts import get_object_or_404
+from django.db import transaction
 
 from rest_framework import status
 from rest_framework.decorators import api_view
 from rest_framework.response import Response
 
-from .models import Restaurant, MenuCategory, MenuItem
+from .models import (
+    Restaurant,
+    MenuCategory,
+    MenuItem,
+    Order,
+)
+
 from .serializers import (
     RestaurantSerializer,
     MenuCategorySerializer,
     MenuItemSerializer,
+    OrderSerializer,
+    OrderCreateSerializer,
 )
-from .models import Order
-from .serializers import OrderSerializer, OrderCreateSerializer
+
+from .order_events import broadcast_order_event
 
 
+# -------------------------
+# HEALTH CHECK
+# -------------------------
 
 @api_view(["GET"])
 def health_check(request):
@@ -42,6 +54,58 @@ def restaurant_list(request):
     )
 
     return Response(serializer.data)
+
+
+@api_view(["POST"])
+def create_restaurant(request):
+    serializer = RestaurantSerializer(
+        data=request.data,
+        context={"request": request},
+    )
+
+    if serializer.is_valid():
+        restaurant = serializer.save()
+
+        return Response(
+            RestaurantSerializer(
+                restaurant,
+                context={"request": request},
+            ).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+    return Response(
+        serializer.errors,
+        status=status.HTTP_400_BAD_REQUEST,
+    )
+
+
+@api_view(["PATCH"])
+def update_restaurant(request, pk):
+    restaurant = get_object_or_404(Restaurant, pk=pk)
+
+    serializer = RestaurantSerializer(
+        restaurant,
+        data=request.data,
+        partial=True,
+        context={"request": request},
+    )
+
+    if serializer.is_valid():
+        updated_restaurant = serializer.save()
+
+        return Response(
+            RestaurantSerializer(
+                updated_restaurant,
+                context={"request": request},
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    return Response(
+        serializer.errors,
+        status=status.HTTP_400_BAD_REQUEST,
+    )
 
 
 # -------------------------
@@ -229,58 +293,6 @@ def update_menu_item(request, pk):
     )
 
 
-
-@api_view(["POST"])
-def create_restaurant(request):
-    serializer = RestaurantSerializer(
-        data=request.data,
-        context={"request": request},
-    )
-
-    if serializer.is_valid():
-        restaurant = serializer.save()
-
-        return Response(
-            RestaurantSerializer(
-                restaurant,
-                context={"request": request},
-            ).data,
-            status=status.HTTP_201_CREATED,
-        )
-
-    return Response(
-        serializer.errors,
-        status=status.HTTP_400_BAD_REQUEST,
-    )
-
-
-@api_view(["PATCH"])
-def update_restaurant(request, pk):
-    restaurant = get_object_or_404(Restaurant, pk=pk)
-
-    serializer = RestaurantSerializer(
-        restaurant,
-        data=request.data,
-        partial=True,
-        context={"request": request},
-    )
-
-    if serializer.is_valid():
-        updated_restaurant = serializer.save()
-
-        return Response(
-            RestaurantSerializer(
-                updated_restaurant,
-                context={"request": request},
-            ).data,
-            status=status.HTTP_200_OK,
-        )
-
-    return Response(
-        serializer.errors,
-        status=status.HTTP_400_BAD_REQUEST,
-    )
-
 # -------------------------
 # ORDER MANAGEMENT
 # -------------------------
@@ -301,7 +313,8 @@ def order_list(request):
 
     if order_status:
         valid_statuses = [
-            choice[0] for choice in Order.OrderStatus.choices
+            choice[0]
+            for choice in Order.OrderStatus.choices
         ]
 
         if order_status not in valid_statuses:
@@ -328,11 +341,18 @@ def create_order(request):
     if serializer.is_valid():
         order = serializer.save()
 
+        order_data = OrderSerializer(
+            order,
+            context={"request": request},
+        ).data
+
+        broadcast_order_event(
+            "order.created",
+            order_data,
+        )
+
         return Response(
-            OrderSerializer(
-                order,
-                context={"request": request},
-            ).data,
+            order_data,
             status=status.HTTP_201_CREATED,
         )
 
@@ -343,22 +363,26 @@ def create_order(request):
 
 
 @api_view(["PATCH"])
+@transaction.atomic
 def update_order_status(request, pk):
     """
-    Update an order's status for the Kitchen Display.
-    """
-    order = Order.objects.filter(pk=pk).first()
+    Update an order's status safely and broadcast the change.
 
-    if order is None:
-        return Response(
-            {"error": "Order not found."},
-            status=status.HTTP_404_NOT_FOUND,
-        )
+    The database row lock prevents simultaneous requests from
+    validating against the same stale order status.
+    """
+
+    # Lock this order until the transaction completes.
+    order = get_object_or_404(
+        Order.objects.select_for_update(),
+        pk=pk,
+    )
 
     new_status = request.data.get("status")
 
     valid_statuses = [
-        choice[0] for choice in Order.OrderStatus.choices
+        choice[0]
+        for choice in Order.OrderStatus.choices
     ]
 
     if new_status not in valid_statuses:
@@ -393,10 +417,20 @@ def update_order_status(request, pk):
     order.status = new_status
     order.save(update_fields=["status", "updated_at"])
 
+    order_data = OrderSerializer(
+        order,
+        context={"request": request},
+    ).data
+
+    # Broadcast only after the database transaction commits.
+    transaction.on_commit(
+        lambda: broadcast_order_event(
+            "order.updated",
+            order_data,
+        )
+    )
+
     return Response(
-        OrderSerializer(
-            order,
-            context={"request": request},
-        ).data,
+        order_data,
         status=status.HTTP_200_OK,
     )
