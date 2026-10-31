@@ -41,6 +41,7 @@ export default function Categories() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
+  // Load categories and restaurants for refreshes after user actions.
   const loadData = useCallback(async () => {
     setLoading(true);
     setError("");
@@ -69,9 +70,47 @@ export default function Categories() {
     }
   }, []);
 
+  // Initial fetch: update state after the asynchronous requests complete.
   useEffect(() => {
-    void loadData();
-  }, [loadData]);
+    let cancelled = false;
+
+    async function fetchInitialData() {
+      try {
+        const [categoryRes, restaurantRes] = await Promise.all([
+          fetch(`${API}/categories/?include_inactive=true`),
+          fetch(`${API}/restaurants/`),
+        ]);
+
+        if (!categoryRes.ok || !restaurantRes.ok) {
+          throw new Error("Failed to load categories or restaurants.");
+        }
+
+        const categoryData: Category[] = await categoryRes.json();
+        const restaurantData: Restaurant[] = await restaurantRes.json();
+
+        if (cancelled) return;
+
+        setCategories(categoryData);
+        setRestaurants(restaurantData);
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Unable to load data."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void fetchInitialData();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function updateForm<K extends keyof CategoryForm>(
     key: K,
@@ -92,6 +131,7 @@ export default function Categories() {
       description: category.description || "",
       is_active: category.is_active,
     });
+
     setEditingId(category.id);
     setError("");
     setMessage("");
@@ -101,7 +141,6 @@ export default function Categories() {
     event: React.FormEvent<HTMLFormElement>
   ) {
     event.preventDefault();
-    setSaving(true);
     setError("");
     setMessage("");
 
@@ -114,9 +153,10 @@ export default function Categories() {
 
     if (!payload.restaurant || !payload.name) {
       setError("Select a restaurant and enter a category name.");
-      setSaving(false);
       return;
     }
+
+    setSaving(true);
 
     try {
       const url = editingId

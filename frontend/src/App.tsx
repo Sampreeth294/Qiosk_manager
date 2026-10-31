@@ -13,6 +13,11 @@ import MenuVoting from "./pages/MenuVoting";
 import CustomerRatings from "./pages/CustomerRatings";
 import LiveOrderDisplay from "./pages/LiveOrderDisplay";
 import Inventory from "./pages/Inventory";
+import PurchaseOrders from "./pages/PurchaseOrders";
+import Expenses from "./pages/Expenses";
+import StaffManagement from "./pages/StaffManagement";
+import DiscountsOffers from "./pages/DiscountsOffers";
+import CustomerManagement from "./pages/CustomerManagement";
 
 const navigation = [
 
@@ -30,6 +35,11 @@ const navigation = [
   { name: "Ratings", symbol: "⭐", group: "MANAGEMENT" },
   { name: "Reports", symbol: "📊", group: "MANAGEMENT" },
   { name: "Settings", symbol: "⚙", group: "SYSTEM" },
+  { name: "Purchase Orders", symbol: "▤", group: "MANAGEMENT" },
+  { name: "Expenses", symbol: "₹", group: "FINANCE" },
+  { name: "Staff Management", symbol: "👥", group: "MANAGEMENT" },
+  { name: "Discounts & Offers", symbol: "%", group: "MARKETING" },
+  { name: "Customers", symbol: "👥", group: "MANAGEMENT" },
 ];
 
 function App() {
@@ -86,6 +96,16 @@ function App() {
         return <LiveOrderDisplay />;
       case "Inventory":
         return <Inventory />;
+      case "Purchase Orders":
+        return <PurchaseOrders />;
+      case "Expenses":
+        return <Expenses />;
+      case "Staff Management":
+        return <StaffManagement />;
+      case "Discounts & Offers":
+        return <DiscountsOffers />;
+      case "Customers":
+        return <CustomerManagement />;
       default:
         return (
           <section className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">

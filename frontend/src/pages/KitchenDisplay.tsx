@@ -1,170 +1,242 @@
 
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-type OrderStatus = "New" | "Preparing" | "Ready" | "Completed";
+const API_URL = "http://127.0.0.1:8001/api";
+
+type ApiStatus =
+  | "PENDING"
+  | "CONFIRMED"
+  | "PREPARING"
+  | "READY"
+  | "COMPLETED"
+  | "CANCELLED";
+
+type Filter =
+  | "All"
+  | "New"
+  | "Confirmed"
+  | "Preparing"
+  | "Ready"
+  | "Completed";
+
+type ApiOrderItem = {
+  id?: number;
+  item_name?: string;
+  menu_item_name?: string;
+  name?: string;
+  quantity: number;
+  note?: string;
+};
+
+type ApiOrder = {
+  id: number;
+  order_number: string;
+  restaurant?: number;
+  restaurant_name?: string;
+  order_type: "DINE_IN" | "TAKEAWAY" | string;
+  table_number?: string | number | null;
+  status: ApiStatus;
+  items: ApiOrderItem[];
+  created_at: string;
+  updated_at?: string;
+};
 
 type KitchenOrder = {
-  id: string;
+  id: number;
+  orderNumber: string;
   customer: string;
   items: { name: string; quantity: number; note?: string }[];
-  status: OrderStatus;
+  status: ApiStatus;
   minutesAgo: number;
-  orderType: "Dine-in" | "Takeaway";
+  orderType: string;
 };
 
-const initialOrders: KitchenOrder[] = [
-  {
-    id: "ORD-1042",
-    customer: "Table 04",
-    items: [
-      { name: "Masala Dosa", quantity: 2 },
-      { name: "Idli Vada", quantity: 1, note: "Extra chutney" },
-    ],
-    status: "New",
-    minutesAgo: 2,
-    orderType: "Dine-in",
-  },
-  {
-    id: "ORD-1043",
-    customer: "Takeaway",
-    items: [
-      { name: "Veg Fried Rice", quantity: 1 },
-      { name: "Gobi Manchurian", quantity: 1, note: "Less spicy" },
-    ],
-    status: "Preparing",
-    minutesAgo: 8,
-    orderType: "Takeaway",
-  },
-  {
-    id: "ORD-1044",
-    customer: "Table 02",
-    items: [
-      { name: "Paneer Butter Masala", quantity: 1 },
-      { name: "Butter Naan", quantity: 3 },
-    ],
-    status: "Preparing",
-    minutesAgo: 12,
-    orderType: "Dine-in",
-  },
-  {
-    id: "ORD-1045",
-    customer: "Table 07",
-    items: [{ name: "Veg Biryani", quantity: 2 }],
-    status: "Ready",
-    minutesAgo: 6,
-    orderType: "Dine-in",
-  },
-  {
-    id: "ORD-1046",
-    customer: "Takeaway",
-    items: [
-      { name: "Idli Vada", quantity: 2 },
-      { name: "Filter Coffee", quantity: 2 },
-    ],
-    status: "New",
-    minutesAgo: 1,
-    orderType: "Takeaway",
-  },
-  {
-    id: "ORD-1047",
-    customer: "Table 01",
-    items: [{ name: "Masala Dosa", quantity: 1 }],
-    status: "Completed",
-    minutesAgo: 18,
-    orderType: "Dine-in",
-  },
-];
-
-type Filter = "All" | "New" | "Preparing" | "Ready";
-
-const statusStyles: Record<OrderStatus, string> = {
-  New: "bg-blue-50 text-blue-700",
-  Preparing: "bg-amber-50 text-amber-700",
-  Ready: "bg-emerald-50 text-emerald-700",
-  Completed: "bg-slate-100 text-slate-600",
+const statusLabels: Record<ApiStatus, string> = {
+  PENDING: "New",
+  CONFIRMED: "Confirmed",
+  PREPARING: "Preparing",
+  READY: "Ready",
+  COMPLETED: "Completed",
+  CANCELLED: "Cancelled",
 };
 
-function nextStatus(status: OrderStatus): OrderStatus {
-  switch (status) {
-    case "New":
-      return "Preparing";
-    case "Preparing":
-      return "Ready";
-    case "Ready":
-      return "Completed";
-    default:
-      return "Completed";
-  }
-}
+const statusStyles: Record<ApiStatus, string> = {
+  PENDING: "bg-blue-50 text-blue-700",
+  CONFIRMED: "bg-indigo-50 text-indigo-700",
+  PREPARING: "bg-amber-50 text-amber-700",
+  READY: "bg-emerald-50 text-emerald-700",
+  COMPLETED: "bg-slate-100 text-slate-600",
+  CANCELLED: "bg-red-50 text-red-700",
+};
 
-function nextActionLabel(status: OrderStatus): string {
-  switch (status) {
-    case "New":
-      return "Start Preparing";
-    case "Preparing":
-      return "Mark Ready";
-    case "Ready":
-      return "Complete Order";
-    default:
-      return "Completed";
-  }
+const allowedNextStatus: Partial<Record<ApiStatus, ApiStatus>> = {
+  PENDING: "CONFIRMED",
+  CONFIRMED: "PREPARING",
+  PREPARING: "READY",
+  READY: "COMPLETED",
+};
+
+const actionLabels: Partial<Record<ApiStatus, string>> = {
+  PENDING: "Confirm Order",
+  CONFIRMED: "Start Preparing",
+  PREPARING: "Mark Ready",
+  READY: "Complete Order",
+};
+
+function mapOrder(order: ApiOrder): KitchenOrder {
+  const createdTime = new Date(order.created_at).getTime();
+  const minutesAgo = Number.isNaN(createdTime)
+    ? 0
+    : Math.max(0, Math.floor((Date.now() - createdTime) / 60000));
+
+  return {
+    id: order.id,
+    orderNumber: order.order_number,
+    customer:
+      order.order_type === "TAKEAWAY"
+        ? "Takeaway"
+        : order.table_number != null
+          ? `Table ${order.table_number}`
+          : order.restaurant_name || "Dine-in",
+    items: (order.items ?? []).map((item) => ({
+      name: item.item_name || item.menu_item_name || item.name || "Menu item",
+      quantity: item.quantity,
+      note: item.note,
+    })),
+    status: order.status,
+    minutesAgo,
+    orderType:
+      order.order_type === "TAKEAWAY" ? "Takeaway" : "Dine-in",
+  };
 }
 
 export default function KitchenDisplay() {
-  const [orders, setOrders] = useState<KitchenOrder[]>(initialOrders);
+  const [orders, setOrders] = useState<KitchenOrder[]>([]);
   const [filter, setFilter] = useState<Filter>("All");
   const [search, setSearch] = useState("");
   const [showCompleted, setShowCompleted] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [updatingIds, setUpdatingIds] = useState<number[]>([]);
+
+  const fetchOrders = useCallback(async (showLoading = false) => {
+    if (showLoading) setLoading(true);
+
+    try {
+      const response = await fetch(`${API_URL}/orders/`);
+
+      if (!response.ok) {
+        throw new Error(`Could not fetch orders (${response.status}).`);
+      }
+
+      const data: ApiOrder[] = await response.json();
+
+      if (!Array.isArray(data)) {
+        throw new Error("Unexpected orders response from the server.");
+      }
+
+      setOrders(data.map(mapOrder));
+      setError("");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Unable to connect to the backend.",
+      );
+    } finally {
+      if (showLoading) setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const intervalId = window.setInterval(() => {
+      void fetchOrders();
+    }, 5000);
+
+    return () => window.clearInterval(intervalId);
+}, [fetchOrders]);
+
+useEffect(() => {
+  const timeoutId = window.setTimeout(() => {
+    void fetchOrders(true);
+  }, 0);
+
+  return () => window.clearTimeout(timeoutId);
+}, [fetchOrders]);
 
   const counts = useMemo(
     () => ({
-      New: orders.filter((order) => order.status === "New").length,
-      Preparing: orders.filter((order) => order.status === "Preparing").length,
-      Ready: orders.filter((order) => order.status === "Ready").length,
-      Completed: orders.filter((order) => order.status === "Completed").length,
+      New: orders.filter((o) => o.status === "PENDING").length,
+      Confirmed: orders.filter((o) => o.status === "CONFIRMED").length,
+      Preparing: orders.filter((o) => o.status === "PREPARING").length,
+      Ready: orders.filter((o) => o.status === "READY").length,
+      Completed: orders.filter((o) => o.status === "COMPLETED").length,
     }),
     [orders],
   );
 
   const visibleOrders = useMemo(() => {
+    const query = search.toLowerCase();
+
     return orders.filter((order) => {
       const matchesSearch =
-        order.id.toLowerCase().includes(search.toLowerCase()) ||
-        order.customer.toLowerCase().includes(search.toLowerCase()) ||
-        order.items.some((item) =>
-          item.name.toLowerCase().includes(search.toLowerCase()),
-        );
+        order.orderNumber.toLowerCase().includes(query) ||
+        String(order.id).includes(query) ||
+        order.customer.toLowerCase().includes(query) ||
+        order.items.some((item) => item.name.toLowerCase().includes(query));
 
-      const matchesFilter =
-        filter === "All" || order.status === filter;
+      const label = statusLabels[order.status];
+      const matchesFilter = filter === "All" || label === filter;
 
       const matchesCompleted =
-        showCompleted || order.status !== "Completed";
+        showCompleted ||
+        (order.status !== "COMPLETED" && order.status !== "CANCELLED");
 
       return matchesSearch && matchesFilter && matchesCompleted;
     });
   }, [orders, filter, search, showCompleted]);
 
-  function advanceOrder(orderId: string) {
-    setOrders((previous) =>
-      previous.map((order) =>
-        order.id === orderId
-          ? { ...order, status: nextStatus(order.status) }
-          : order,
-      ),
-    );
-  }
+  async function advanceOrder(order: KitchenOrder) {
+    const nextStatus = allowedNextStatus[order.status];
 
-  function resetDemoOrders() {
-    setOrders(initialOrders);
-    setFilter("All");
-    setSearch("");
-    setShowCompleted(false);
+    if (!nextStatus || updatingIds.includes(order.id)) return;
+
+    setUpdatingIds((previous) => [...previous, order.id]);
+    setError("");
+
+    try {
+      const response = await fetch(
+        `${API_URL}/orders/${order.id}/status/`,
+        {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ status: nextStatus }),
+        },
+      );
+
+      const result = await response.json().catch(() => null);
+
+      if (!response.ok) {
+        throw new Error(
+          result?.error || `Status update failed (${response.status}).`,
+        );
+      }
+
+      // Refresh from the server so the database remains the source of truth.
+      await fetchOrders();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Unable to update order status.",
+      );
+    } finally {
+      setUpdatingIds((previous) =>
+        previous.filter((id) => id !== order.id),
+      );
+    }
   }
 
   return (
     <div className="min-h-full space-y-6">
-      {/* Header */}
       <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-center">
         <div>
           <p className="text-sm font-medium text-indigo-600">
@@ -174,87 +246,72 @@ export default function KitchenDisplay() {
             Kitchen Display
           </h1>
           <p className="mt-1 text-sm text-slate-500">
-            Manage incoming orders and kitchen preparation.
+            Live orders from POS · Refreshes every 5 seconds
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-3">
-          <span className="rounded-full bg-amber-50 px-3 py-2 text-xs font-medium text-amber-700">
-            Demo mode
-          </span>
-
-          <button
-            type="button"
-            onClick={resetDemoOrders}
-            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50"
-          >
-            Reset Demo
-          </button>
-        </div>
+        <button
+          type="button"
+          onClick={() => void fetchOrders(true)}
+          disabled={loading}
+          className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+        >
+          {loading ? "Loading..." : "Refresh Orders"}
+        </button>
       </div>
 
-      {/* Status summary */}
-      <div className="grid grid-cols-2 gap-4 xl:grid-cols-4">
-        {[
-          {
-            label: "New Orders",
-            count: counts.New,
-            color: "border-blue-200 bg-blue-50",
-            text: "text-blue-700",
-          },
-          {
-            label: "Preparing",
-            count: counts.Preparing,
-            color: "border-amber-200 bg-amber-50",
-            text: "text-amber-700",
-          },
-          {
-            label: "Ready to Serve",
-            count: counts.Ready,
-            color: "border-emerald-200 bg-emerald-50",
-            text: "text-emerald-700",
-          },
-          {
-            label: "Completed",
-            count: counts.Completed,
-            color: "border-slate-200 bg-white",
-            text: "text-slate-700",
-          },
-        ].map((item) => (
-          <div
-            key={item.label}
-            className={`rounded-2xl border p-5 shadow-sm ${item.color}`}
+      {error && (
+        <div
+          role="alert"
+          className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
+        >
+          <span>{error}</span>
+          <button
+            type="button"
+            onClick={() => void fetchOrders(true)}
+            className="font-semibold underline"
           >
-            <p className={`text-sm font-medium ${item.text}`}>
-              {item.label}
-            </p>
-            <p className={`mt-3 text-3xl font-bold ${item.text}`}>
-              {item.count}
-            </p>
+            Retry
+          </button>
+        </div>
+      )}
+
+      <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
+        {(
+          [
+            ["New Orders", counts.New, "border-blue-200 bg-blue-50 text-blue-700"],
+            ["Confirmed", counts.Confirmed, "border-indigo-200 bg-indigo-50 text-indigo-700"],
+            ["Preparing", counts.Preparing, "border-amber-200 bg-amber-50 text-amber-700"],
+            ["Ready to Serve", counts.Ready, "border-emerald-200 bg-emerald-50 text-emerald-700"],
+            ["Completed", counts.Completed, "border-slate-200 bg-white text-slate-700"],
+          ] as const
+        ).map(([label, count, style]) => (
+          <div key={label} className={`rounded-2xl border p-5 shadow-sm ${style}`}>
+            <p className="text-sm font-medium">{label}</p>
+            <p className="mt-3 text-3xl font-bold">{count}</p>
           </div>
         ))}
       </div>
 
-      {/* Search and filters */}
       <section className="rounded-2xl border border-slate-200 bg-white p-4 shadow-sm">
         <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
           <div className="flex flex-wrap gap-2">
-            {(["All", "New", "Preparing", "Ready"] as Filter[]).map(
-              (item) => (
-                <button
-                  key={item}
-                  type="button"
-                  onClick={() => setFilter(item)}
-                  className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
-                    filter === item
-                      ? "bg-indigo-600 text-white"
-                      : "bg-slate-100 text-slate-600 hover:bg-slate-200"
-                  }`}
-                >
-                  {item}
-                </button>
-              ),
-            )}
+            {(
+              ["All", "New", "Confirmed", "Preparing", "Ready", "Completed"] as Filter[]
+            ).map((item) => (
+              <button
+                key={item}
+                type="button"
+                onClick={() => setFilter(item)}
+                className={`rounded-xl px-4 py-2.5 text-sm font-medium transition ${
+                  filter === item
+                    ? "bg-indigo-600 text-white"
+                    : "bg-slate-100 text-slate-600 hover:bg-slate-200"
+                }`}
+              >
+                {item}
+              </button>
+            ))}
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
@@ -262,9 +319,7 @@ export default function KitchenDisplay() {
               <input
                 type="checkbox"
                 checked={showCompleted}
-                onChange={(event) =>
-                  setShowCompleted(event.target.checked)
-                }
+                onChange={(event) => setShowCompleted(event.target.checked)}
                 className="h-4 w-4 accent-indigo-600"
               />
               Show completed
@@ -282,15 +337,16 @@ export default function KitchenDisplay() {
         </div>
       </section>
 
-      {/* Order cards */}
-      {visibleOrders.length === 0 ? (
+      {loading ? (
+        <div className="rounded-2xl border border-slate-200 bg-white p-12 text-center text-slate-500">
+          Loading orders from POS...
+        </div>
+      ) : visibleOrders.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-slate-300 bg-white p-12 text-center">
           <div className="text-3xl">🍽️</div>
-          <h2 className="mt-3 font-semibold text-slate-800">
-            No orders found
-          </h2>
+          <h2 className="mt-3 font-semibold text-slate-800">No orders found</h2>
           <p className="mt-1 text-sm text-slate-500">
-            Try another filter or search term.
+            Create an order in POS or try a different filter.
           </p>
         </div>
       ) : (
@@ -298,34 +354,36 @@ export default function KitchenDisplay() {
           {visibleOrders.map((order) => {
             const isLate =
               order.minutesAgo >= 10 &&
-              order.status !== "Ready" &&
-              order.status !== "Completed";
+              order.status !== "READY" &&
+              order.status !== "COMPLETED" &&
+              order.status !== "CANCELLED";
+
+            const actionLabel = actionLabels[order.status];
 
             return (
               <article
                 key={order.id}
                 className={`overflow-hidden rounded-2xl border bg-white shadow-sm ${
-                  isLate
-                    ? "border-amber-300"
-                    : "border-slate-200"
+                  isLate ? "border-amber-300" : "border-slate-200"
                 }`}
               >
                 <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-5">
                   <div>
-                    <p className="text-lg font-bold text-slate-900">
-                      {order.id}
+                    <p className="break-all text-lg font-bold text-slate-900">
+                      Order #{order.id}
                     </p>
                     <p className="mt-1 text-sm text-slate-500">
                       {order.customer}
                     </p>
+                    <p className="mt-1 text-xs text-slate-400">
+                      Ref: {order.orderNumber}
+                    </p>
                   </div>
 
                   <span
-                    className={`rounded-full px-3 py-1.5 text-xs font-semibold ${
-                      statusStyles[order.status]
-                    }`}
+                    className={`shrink-0 rounded-full px-3 py-1.5 text-xs font-semibold ${statusStyles[order.status]}`}
                   >
-                    {order.status}
+                    {statusLabels[order.status]}
                   </span>
                 </div>
 
@@ -360,7 +418,6 @@ export default function KitchenDisplay() {
                           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-sm font-bold text-indigo-700">
                             {item.quantity}
                           </span>
-
                           <div>
                             <p className="text-sm font-medium text-slate-800">
                               {item.name}
@@ -376,26 +433,33 @@ export default function KitchenDisplay() {
                     </div>
                   </div>
 
-                  {order.status === "Completed" ? (
+                  {order.status === "COMPLETED" ||
+                  order.status === "CANCELLED" ? (
                     <div className="rounded-xl bg-slate-50 px-4 py-3 text-center text-sm font-medium text-slate-500">
-                      Order completed
+                      {statusLabels[order.status]}
                     </div>
                   ) : (
                     <button
                       type="button"
-                      onClick={() => advanceOrder(order.id)}
-                      className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition ${
-                        order.status === "New"
+                      disabled={!actionLabel || updatingIds.includes(order.id)}
+                      onClick={() => void advanceOrder(order)}
+                      className={`w-full rounded-xl px-4 py-3 text-sm font-semibold text-white transition disabled:cursor-not-allowed disabled:opacity-50 ${
+                        order.status === "PENDING" ||
+                        order.status === "CONFIRMED"
                           ? "bg-indigo-600 hover:bg-indigo-700"
-                          : order.status === "Preparing"
+                          : order.status === "PREPARING"
                             ? "bg-emerald-600 hover:bg-emerald-700"
                             : "bg-slate-800 hover:bg-slate-900"
                       }`}
                     >
-                      {nextActionLabel(order.status)}
-                      <span className="ml-2" aria-hidden="true">
-                        →
-                      </span>
+                      {updatingIds.includes(order.id)
+                        ? "Updating..."
+                        : actionLabel}
+                      {!updatingIds.includes(order.id) && (
+                        <span className="ml-2" aria-hidden="true">
+                          →
+                        </span>
+                      )}
                     </button>
                   )}
                 </div>
@@ -406,7 +470,7 @@ export default function KitchenDisplay() {
       )}
 
       <p className="text-center text-xs text-slate-400">
-        Kitchen Display System · Demo orders · Changes are temporary
+        Kitchen Display System · Connected to Django REST API
       </p>
     </div>
   );

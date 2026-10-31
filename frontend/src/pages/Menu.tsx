@@ -71,9 +71,47 @@ function Menu() {
     }
   }
 
-  // Load data once when the component mounts.
+  // Load initial data without synchronously setting state in the effect.
   useEffect(() => {
-    void loadData();
+    let cancelled = false;
+
+    async function fetchInitialData() {
+      try {
+        const [itemsResponse, categoriesResponse] = await Promise.all([
+          fetch(`${API_BASE_URL}/menu-items/?include_inactive=true`),
+          fetch(`${API_BASE_URL}/categories/`),
+        ]);
+
+        if (!itemsResponse.ok || !categoriesResponse.ok) {
+          throw new Error("Failed to load menu data.");
+        }
+
+        const itemsData: MenuItem[] = await itemsResponse.json();
+        const categoriesData: Category[] =
+          await categoriesResponse.json();
+
+        if (cancelled) return;
+
+        setItems(itemsData);
+        setCategories(categoriesData);
+      } catch {
+        if (!cancelled) {
+          setError(
+            "Could not load menu data. Check Django, the API URLs, and the backend port."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void fetchInitialData();
+
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Clear the form and its file input.

@@ -25,6 +25,21 @@ const initialForm: RestaurantForm = {
   is_active: true,
 };
 
+function Stat({
+  label,
+  value,
+}: {
+  label: string;
+  value: number;
+}) {
+  return (
+    <div className="rounded-xl border bg-white p-5 shadow-sm">
+      <p className="text-sm text-gray-500">{label}</p>
+      <p className="mt-2 text-3xl font-bold">{value}</p>
+    </div>
+  );
+}
+
 export default function Restaurants() {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [form, setForm] = useState<RestaurantForm>(initialForm);
@@ -35,44 +50,88 @@ export default function Restaurants() {
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
 
+  // Refresh restaurants after create, edit, or status changes.
   const loadRestaurants = useCallback(async () => {
     setLoading(true);
     setError("");
 
     try {
-      // Load all restaurants, including inactive ones, for administration.
-      const response = await fetch(`${API}/restaurants/?include_inactive=true`);
+      const response = await fetch(
+        `${API}/restaurants/?include_inactive=true`,
+      );
 
       if (!response.ok) {
         throw new Error("Unable to load restaurants.");
       }
 
-      setRestaurants(await response.json());
+      const data: Restaurant[] = await response.json();
+      setRestaurants(data);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Unable to load restaurants."
+        err instanceof Error
+          ? err.message
+          : "Unable to load restaurants.",
       );
     } finally {
       setLoading(false);
     }
   }, []);
 
+  // Initial load: update state after the asynchronous request completes.
   useEffect(() => {
-    void loadRestaurants();
-  }, [loadRestaurants]);
+    let cancelled = false;
+
+    async function fetchInitialRestaurants() {
+      try {
+        const response = await fetch(
+          `${API}/restaurants/?include_inactive=true`,
+        );
+
+        if (!response.ok) {
+          throw new Error("Unable to load restaurants.");
+        }
+
+        const data: Restaurant[] = await response.json();
+
+        if (!cancelled) {
+          setRestaurants(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load restaurants.",
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
+      }
+    }
+
+    void fetchInitialRestaurants();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   function resetForm() {
     setForm(initialForm);
     setEditingId(null);
   }
 
-  async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: React.FormEvent<HTMLFormElement>,
+  ) {
     event.preventDefault();
     setSaving(true);
     setError("");
     setMessage("");
 
-    const payload = {
+    const payload: RestaurantForm = {
       name: form.name.trim(),
       address: form.address.trim(),
       phone_number: form.phone_number.trim(),
@@ -86,13 +145,15 @@ export default function Restaurants() {
     }
 
     try {
-      const url = editingId
+      const url = editingId !== null
         ? `${API}/restaurants/${editingId}/update/`
         : `${API}/restaurants/create/`;
 
       const response = await fetch(url, {
-        method: editingId ? "PATCH" : "POST",
-        headers: { "Content-Type": "application/json" },
+        method: editingId !== null ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
         body: JSON.stringify(payload),
       });
 
@@ -100,21 +161,25 @@ export default function Restaurants() {
 
       if (!response.ok) {
         throw new Error(
-          result ? JSON.stringify(result) : "Unable to save restaurant."
+          result
+            ? JSON.stringify(result)
+            : "Unable to save restaurant.",
         );
       }
 
       setMessage(
-        editingId
+        editingId !== null
           ? "Restaurant updated successfully."
-          : "Restaurant created successfully."
+          : "Restaurant created successfully.",
       );
 
       resetForm();
       await loadRestaurants();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Unable to save restaurant."
+        err instanceof Error
+          ? err.message
+          : "Unable to save restaurant.",
       );
     } finally {
       setSaving(false);
@@ -130,9 +195,13 @@ export default function Restaurants() {
         `${API}/restaurants/${restaurant.id}/update/`,
         {
           method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ is_active: !restaurant.is_active }),
-        }
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            is_active: !restaurant.is_active,
+          }),
+        },
       );
 
       if (!response.ok) {
@@ -142,13 +211,15 @@ export default function Restaurants() {
       setMessage(
         `${restaurant.name} ${
           restaurant.is_active ? "deactivated" : "activated"
-        } successfully.`
+        } successfully.`,
       );
 
       await loadRestaurants();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Unable to change status."
+        err instanceof Error
+          ? err.message
+          : "Unable to change status.",
       );
     }
   }
@@ -163,52 +234,73 @@ export default function Restaurants() {
     );
   });
 
-  const activeCount = restaurants.filter((r) => r.is_active).length;
+  const activeCount = restaurants.filter(
+    (restaurant) => restaurant.is_active,
+  ).length;
 
   return (
     <main className="min-h-screen bg-gray-50 p-4 text-gray-800 sm:p-8">
       <div className="mx-auto max-w-7xl space-y-8">
+        {/* Page heading */}
         <header>
           <p className="text-sm font-semibold uppercase tracking-wider text-indigo-600">
             Qiosk Manager
           </p>
+
           <h1 className="mt-2 text-3xl font-bold">
             Restaurant Management
           </h1>
+
           <p className="mt-2 text-gray-500">
             Manage restaurant details and availability.
           </p>
         </header>
 
+        {/* Feedback messages */}
         {error && (
-          <div role="alert" className="rounded-lg bg-red-50 p-4 text-red-700">
+          <div
+            role="alert"
+            className="rounded-lg bg-red-50 p-4 text-red-700"
+          >
             {error}
           </div>
         )}
 
         {message && (
-          <div role="status" className="rounded-lg bg-green-50 p-4 text-green-700">
+          <div
+            role="status"
+            className="rounded-lg bg-green-50 p-4 text-green-700"
+          >
             {message}
           </div>
         )}
 
+        {/* Restaurant statistics */}
         <section className="grid gap-4 sm:grid-cols-3">
           <Stat label="Total Restaurants" value={restaurants.length} />
           <Stat label="Active" value={activeCount} />
-          <Stat label="Inactive" value={restaurants.length - activeCount} />
+          <Stat
+            label="Inactive"
+            value={restaurants.length - activeCount}
+          />
         </section>
 
+        {/* Add and edit restaurant form */}
         <section className="rounded-xl border bg-white p-6 shadow-sm">
           <h2 className="mb-5 text-xl font-semibold">
-            {editingId ? "Edit Restaurant" : "Add Restaurant"}
+            {editingId !== null ? "Edit Restaurant" : "Add Restaurant"}
           </h2>
 
           <form onSubmit={handleSubmit} className="space-y-5">
             <div className="grid gap-5 md:grid-cols-2">
               <div>
-                <label htmlFor="name" className="mb-2 block text-sm font-medium">
+                <label
+                  htmlFor="name"
+                  className="mb-2 block text-sm font-medium"
+                >
                   Restaurant Name *
                 </label>
+
                 <input
                   id="name"
                   value={form.name}
@@ -223,15 +315,22 @@ export default function Restaurants() {
               </div>
 
               <div>
-                <label htmlFor="phone" className="mb-2 block text-sm font-medium">
+                <label
+                  htmlFor="phone"
+                  className="mb-2 block text-sm font-medium"
+                >
                   Phone Number
                 </label>
+
                 <input
                   id="phone"
                   type="tel"
                   value={form.phone_number}
                   onChange={(e) =>
-                    setForm({ ...form, phone_number: e.target.value })
+                    setForm({
+                      ...form,
+                      phone_number: e.target.value,
+                    })
                   }
                   maxLength={10}
                   placeholder="Enter phone number"
@@ -241,9 +340,13 @@ export default function Restaurants() {
             </div>
 
             <div>
-              <label htmlFor="address" className="mb-2 block text-sm font-medium">
+              <label
+                htmlFor="address"
+                className="mb-2 block text-sm font-medium"
+              >
                 Address *
               </label>
+
               <textarea
                 id="address"
                 value={form.address}
@@ -263,7 +366,10 @@ export default function Restaurants() {
                 type="checkbox"
                 checked={form.is_active}
                 onChange={(e) =>
-                  setForm({ ...form, is_active: e.target.checked })
+                  setForm({
+                    ...form,
+                    is_active: e.target.checked,
+                  })
                 }
                 className="h-4 w-4 accent-indigo-600"
               />
@@ -278,7 +384,7 @@ export default function Restaurants() {
               >
                 {saving
                   ? "Saving..."
-                  : editingId
+                  : editingId !== null
                     ? "Save Changes"
                     : "Create Restaurant"}
               </button>
@@ -296,9 +402,13 @@ export default function Restaurants() {
           </form>
         </section>
 
+        {/* Restaurant list */}
         <section className="overflow-hidden rounded-xl border bg-white shadow-sm">
           <div className="flex flex-col justify-between gap-4 p-5 sm:flex-row sm:items-center">
-            <h2 className="text-xl font-semibold">All Restaurants</h2>
+            <h2 className="text-xl font-semibold">
+              All Restaurants
+            </h2>
+
             <input
               type="search"
               value={search}
@@ -310,7 +420,9 @@ export default function Restaurants() {
           </div>
 
           {loading ? (
-            <p className="p-8 text-center text-gray-500">Loading...</p>
+            <p className="p-8 text-center text-gray-500">
+              Loading...
+            </p>
           ) : filtered.length === 0 ? (
             <p className="p-8 text-center text-gray-500">
               No restaurants found.
@@ -327,16 +439,25 @@ export default function Restaurants() {
                     <th className="px-5 py-4 text-right">Actions</th>
                   </tr>
                 </thead>
+
                 <tbody className="divide-y">
                   {filtered.map((restaurant) => (
-                    <tr key={restaurant.id} className="hover:bg-gray-50">
+                    <tr
+                      key={restaurant.id}
+                      className="hover:bg-gray-50"
+                    >
                       <td className="px-5 py-4 font-medium">
                         {restaurant.name}
                       </td>
+
                       <td className="px-5 py-4">
                         {restaurant.phone_number || "—"}
                       </td>
-                      <td className="px-5 py-4">{restaurant.address}</td>
+
+                      <td className="px-5 py-4">
+                        {restaurant.address}
+                      </td>
+
                       <td className="px-5 py-4">
                         <span
                           className={`rounded-full px-3 py-1 text-xs ${
@@ -348,6 +469,7 @@ export default function Restaurants() {
                           {restaurant.is_active ? "Active" : "Inactive"}
                         </span>
                       </td>
+
                       <td className="px-5 py-4">
                         <div className="flex justify-end gap-4">
                           <button
@@ -357,7 +479,8 @@ export default function Restaurants() {
                               setForm({
                                 name: restaurant.name,
                                 address: restaurant.address,
-                                phone_number: restaurant.phone_number || "",
+                                phone_number:
+                                  restaurant.phone_number || "",
                                 is_active: restaurant.is_active,
                               });
                               setError("");
@@ -377,7 +500,9 @@ export default function Restaurants() {
                                 : "text-green-600"
                             }`}
                           >
-                            {restaurant.is_active ? "Deactivate" : "Activate"}
+                            {restaurant.is_active
+                              ? "Deactivate"
+                              : "Activate"}
                           </button>
                         </div>
                       </td>
@@ -390,14 +515,5 @@ export default function Restaurants() {
         </section>
       </div>
     </main>
-  );
-}
-
-function Stat({ label, value }: { label: string; value: number }) {
-  return (
-    <div className="rounded-xl border bg-white p-5 shadow-sm">
-      <p className="text-sm text-gray-500">{label}</p>
-      <p className="mt-2 text-3xl font-bold">{value}</p>
-    </div>
   );
 }

@@ -19,6 +19,13 @@ type SettingsForm = {
   orderNotifications: boolean;
 };
 
+type ToggleProps = {
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (value: boolean) => void;
+};
+
 const initialSettings: SettingsForm = {
   restaurantName: "Qiosk Restaurant",
   email: "restaurant@example.com",
@@ -41,6 +48,43 @@ const tabs: SettingsTab[] = [
   "Orders",
   "Notifications",
 ];
+
+// Defined outside Settings to avoid recreating the component on each render.
+function Toggle({
+  label,
+  description,
+  checked,
+  onChange,
+}: ToggleProps) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-slate-100 py-5 last:border-b-0">
+      <div>
+        <p className="text-sm font-medium text-slate-800">
+          {label}
+        </p>
+        <p className="mt-1 text-sm text-slate-500">
+          {description}
+        </p>
+      </div>
+
+      <button
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative h-6 w-11 shrink-0 rounded-full transition ${
+          checked ? "bg-indigo-600" : "bg-slate-300"
+        }`}
+      >
+        <span
+          className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
+            checked ? "left-[22px]" : "left-0.5"
+          }`}
+        />
+      </button>
+    </div>
+  );
+}
 
 export default function Settings() {
   const [activeTab, setActiveTab] =
@@ -74,47 +118,6 @@ export default function Settings() {
   const labelClass =
     "text-sm font-medium text-slate-700";
 
-  function Toggle({
-    label,
-    description,
-    checked,
-    onChange,
-  }: {
-    label: string;
-    description: string;
-    checked: boolean;
-    onChange: (value: boolean) => void;
-  }) {
-    return (
-      <div className="flex items-center justify-between gap-4 border-b border-slate-100 py-5 last:border-b-0">
-        <div>
-          <p className="text-sm font-medium text-slate-800">
-            {label}
-          </p>
-          <p className="mt-1 text-sm text-slate-500">
-            {description}
-          </p>
-        </div>
-
-        <button
-          type="button"
-          role="switch"
-          aria-checked={checked}
-          onClick={() => onChange(!checked)}
-          className={`relative h-6 w-11 shrink-0 rounded-full transition ${
-            checked ? "bg-indigo-600" : "bg-slate-300"
-          }`}
-        >
-          <span
-            className={`absolute top-0.5 h-5 w-5 rounded-full bg-white shadow transition-all ${
-              checked ? "left-[22px]" : "left-0.5"
-            }`}
-          />
-        </button>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-full space-y-6">
       {/* Page heading */}
@@ -128,6 +131,7 @@ export default function Settings() {
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">
               Settings
             </h1>
+
             <p className="mt-1 text-sm text-slate-500">
               Manage your restaurant preferences and application settings.
             </p>
@@ -167,6 +171,7 @@ export default function Settings() {
               <h2 className="text-lg font-semibold text-slate-900">
                 Restaurant Profile
               </h2>
+
               <p className="mt-1 text-sm text-slate-500">
                 Update your restaurant's contact information.
               </p>
@@ -177,6 +182,7 @@ export default function Settings() {
                 <label className={labelClass}>
                   Restaurant Name
                 </label>
+
                 <input
                   className={inputClass}
                   value={settings.restaurantName}
@@ -191,6 +197,7 @@ export default function Settings() {
                 <label className={labelClass}>
                   Contact Email
                 </label>
+
                 <input
                   type="email"
                   className={inputClass}
@@ -206,6 +213,7 @@ export default function Settings() {
                 <label className={labelClass}>
                   Phone Number
                 </label>
+
                 <input
                   type="tel"
                   className={inputClass}
@@ -221,6 +229,7 @@ export default function Settings() {
                 <label className={labelClass}>
                   Restaurant Address
                 </label>
+
                 <input
                   className={inputClass}
                   placeholder="Enter restaurant address"
@@ -241,6 +250,7 @@ export default function Settings() {
               <h2 className="text-lg font-semibold text-slate-900">
                 General Preferences
               </h2>
+
               <p className="mt-1 text-sm text-slate-500">
                 Configure regional and billing preferences.
               </p>
@@ -251,6 +261,7 @@ export default function Settings() {
                 <label className={labelClass}>
                   Currency
                 </label>
+
                 <select
                   className={inputClass}
                   value={settings.currency}
@@ -269,6 +280,7 @@ export default function Settings() {
                 <label className={labelClass}>
                   Timezone
                 </label>
+
                 <select
                   className={inputClass}
                   value={settings.timezone}
@@ -279,12 +291,15 @@ export default function Settings() {
                   <option value="Asia/Kolkata">
                     India Standard Time
                   </option>
+
                   <option value="UTC">
                     Coordinated Universal Time
                   </option>
+
                   <option value="America/New_York">
                     US Eastern Time
                   </option>
+
                   <option value="Europe/London">
                     United Kingdom Time
                   </option>
@@ -295,6 +310,7 @@ export default function Settings() {
                 <label className={labelClass}>
                   Tax Percentage (%)
                 </label>
+
                 <input
                   type="number"
                   min="0"
@@ -310,6 +326,7 @@ export default function Settings() {
                   }
                   required
                 />
+
                 <p className="mt-2 text-xs text-slate-500">
                   Demo setting only. Actual tax rules must be configured
                   according to applicable requirements.
@@ -326,6 +343,7 @@ export default function Settings() {
               <h2 className="text-lg font-semibold text-slate-900">
                 Order Preferences
               </h2>
+
               <p className="mt-1 text-sm text-slate-500">
                 Choose how incoming customer orders should be handled.
               </p>
@@ -360,6 +378,7 @@ export default function Settings() {
               <h2 className="text-lg font-semibold text-slate-900">
                 Notification Preferences
               </h2>
+
               <p className="mt-1 text-sm text-slate-500">
                 Select the notifications you want enabled.
               </p>

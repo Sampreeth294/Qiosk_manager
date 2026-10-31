@@ -11,10 +11,6 @@ from .serializers import (
     MenuCategorySerializer,
     MenuItemSerializer,
 )
-from rest_framework import status
-from rest_framework.decorators import api_view
-from rest_framework.response import Response
-
 from .models import Order
 from .serializers import OrderSerializer, OrderCreateSerializer
 
@@ -34,7 +30,10 @@ def health_check(request):
 
 @api_view(["GET"])
 def restaurant_list(request):
-    restaurants = Restaurant.objects.filter(is_active=True)
+    if request.query_params.get("include_inactive") == "true":
+        restaurants = Restaurant.objects.all()
+    else:
+        restaurants = Restaurant.objects.filter(is_active=True)
 
     serializer = RestaurantSerializer(
         restaurants,
@@ -282,27 +281,6 @@ def update_restaurant(request, pk):
         status=status.HTTP_400_BAD_REQUEST,
     )
 
-    @api_view(["GET"])
-def restaurant_list(request):
-    include_inactive = (
-        request.query_params.get("include_inactive") == "true"
-    )
-
-    if include_inactive:
-        restaurants = Restaurant.objects.all()
-    else:
-        restaurants = Restaurant.objects.filter(is_active=True)
-
-    serializer = RestaurantSerializer(
-        restaurants,
-        many=True,
-        context={"request": request},
-    )
-
-    return Response(serializer.data)
-
-
-
 # -------------------------
 # ORDER MANAGEMENT
 # -------------------------
@@ -363,3 +341,62 @@ def create_order(request):
         status=status.HTTP_400_BAD_REQUEST,
     )
 
+
+@api_view(["PATCH"])
+def update_order_status(request, pk):
+    """
+    Update an order's status for the Kitchen Display.
+    """
+    order = Order.objects.filter(pk=pk).first()
+
+    if order is None:
+        return Response(
+            {"error": "Order not found."},
+            status=status.HTTP_404_NOT_FOUND,
+        )
+
+    new_status = request.data.get("status")
+
+    valid_statuses = [
+        choice[0] for choice in Order.OrderStatus.choices
+    ]
+
+    if new_status not in valid_statuses:
+        return Response(
+            {
+                "error": "Invalid status.",
+                "valid_statuses": valid_statuses,
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    allowed_transitions = {
+        "PENDING": ["CONFIRMED", "CANCELLED"],
+        "CONFIRMED": ["PREPARING", "CANCELLED"],
+        "PREPARING": ["READY"],
+        "READY": ["COMPLETED"],
+        "COMPLETED": [],
+        "CANCELLED": [],
+    }
+
+    if new_status not in allowed_transitions[order.status]:
+        return Response(
+            {
+                "error": (
+                    f"Cannot change status from "
+                    f"{order.status} to {new_status}."
+                )
+            },
+            status=status.HTTP_400_BAD_REQUEST,
+        )
+
+    order.status = new_status
+    order.save(update_fields=["status", "updated_at"])
+
+    return Response(
+        OrderSerializer(
+            order,
+            context={"request": request},
+        ).data,
+        status=status.HTTP_200_OK,
+    )
