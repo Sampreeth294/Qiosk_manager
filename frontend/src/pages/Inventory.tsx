@@ -1,296 +1,407 @@
 
 import { useMemo, useState } from "react";
+import type { FormEvent, ReactNode } from "react";
 
 type InventoryItem = {
   id: number;
   name: string;
   category: string;
-  quantity: number;
   unit: string;
-  minimumStock: number;
-  costPerUnit: number;
+  stock: number;
+  minimum: number;
+  cost: number;
+  supplier: string;
 };
 
 const initialItems: InventoryItem[] = [
-  { id: 1, name: "Basmati Rice", category: "Grains", quantity: 25, unit: "kg", minimumStock: 10, costPerUnit: 90 },
-  { id: 2, name: "Paneer", category: "Dairy", quantity: 4, unit: "kg", minimumStock: 8, costPerUnit: 320 },
-  { id: 3, name: "Cooking Oil", category: "Oils", quantity: 12, unit: "L", minimumStock: 5, costPerUnit: 150 },
-  { id: 4, name: "Tomatoes", category: "Vegetables", quantity: 3, unit: "kg", minimumStock: 6, costPerUnit: 40 },
-  { id: 5, name: "Wheat Flour", category: "Grains", quantity: 18, unit: "kg", minimumStock: 7, costPerUnit: 45 },
-  { id: 6, name: "Milk", category: "Dairy", quantity: 2, unit: "L", minimumStock: 5, costPerUnit: 60 },
-  { id: 7, name: "Onions", category: "Vegetables", quantity: 14, unit: "kg", minimumStock: 5, costPerUnit: 35 },
+  { id: 1, name: "Basmati Rice", category: "Grains", unit: "kg", stock: 28, minimum: 10, cost: 85, supplier: "Fresh Farm Supplies" },
+  { id: 2, name: "Cooking Oil", category: "Essentials", unit: "L", stock: 7, minimum: 12, cost: 145, supplier: "Daily Needs Co." },
+  { id: 3, name: "Tomatoes", category: "Vegetables", unit: "kg", stock: 5, minimum: 8, cost: 32, supplier: "Green Basket" },
+  { id: 4, name: "Paneer", category: "Dairy", unit: "kg", stock: 9, minimum: 4, cost: 320, supplier: "Fresh Farm Supplies" },
+  { id: 5, name: "Wheat Flour", category: "Grains", unit: "kg", stock: 22, minimum: 10, cost: 42, supplier: "Daily Needs Co." },
+  { id: 6, name: "Onions", category: "Vegetables", unit: "kg", stock: 3, minimum: 8, cost: 38, supplier: "Green Basket" },
+  { id: 7, name: "Milk", category: "Dairy", unit: "L", stock: 16, minimum: 6, cost: 58, supplier: "Morning Dairy" },
+  { id: 8, name: "Chilli Powder", category: "Spices", unit: "kg", stock: 4, minimum: 3, cost: 210, supplier: "Spice Route" },
 ];
 
-type InventoryForm = {
-  name: string;
-  category: string;
-  quantity: string;
-  unit: string;
-  minimumStock: string;
-  costPerUnit: string;
-};
+const categories = [
+  "All categories",
+  "Grains",
+  "Vegetables",
+  "Dairy",
+  "Essentials",
+  "Spices",
+];
 
-const emptyForm: InventoryForm = {
-  name: "",
-  category: "Vegetables",
-  quantity: "",
-  unit: "kg",
-  minimumStock: "",
-  costPerUnit: "",
-};
+const money = (amount: number) =>
+  `₹${amount.toLocaleString("en-IN", {
+    maximumFractionDigits: 2,
+  })}`;
 
-function Inventory() {
-  const [items, setItems] = useState(initialItems);
+const inputClass =
+  "w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-100";
+
+export default function Inventory() {
+  const [items, setItems] = useState<InventoryItem[]>(initialItems);
   const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState("All");
-  const [stockFilter, setStockFilter] = useState("All");
-  const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState<InventoryForm>(emptyForm);
-  const [error, setError] = useState("");
+  const [category, setCategory] = useState("All categories");
+  const [stockFilter, setStockFilter] = useState("All stock");
+  const [showAddForm, setShowAddForm] = useState(false);
+  const [notice, setNotice] = useState("");
 
-  const categories = useMemo(
-    () => ["All", ...Array.from(new Set(items.map((item) => item.category)))],
-    [items],
-  );
-
-  const lowStockCount = items.filter(
-    (item) => item.quantity <= item.minimumStock,
-  ).length;
-
-  const totalStockValue = items.reduce(
-    (total, item) => total + item.quantity * item.costPerUnit,
-    0,
-  );
+  const [newItem, setNewItem] = useState({
+    name: "",
+    category: "Grains",
+    unit: "kg",
+    stock: "",
+    minimum: "",
+    cost: "",
+    supplier: "",
+  });
 
   const filteredItems = useMemo(() => {
     return items.filter((item) => {
-      const matchesSearch = item.name
+      const matchesSearch = `${item.name} ${item.supplier}`
         .toLowerCase()
-        .includes(search.trim().toLowerCase());
+        .includes(search.toLowerCase());
 
       const matchesCategory =
-        categoryFilter === "All" || item.category === categoryFilter;
-
-      const isLowStock = item.quantity <= item.minimumStock;
+        category === "All categories" || item.category === category;
 
       const matchesStock =
-        stockFilter === "All" ||
-        (stockFilter === "Low stock" && isLowStock) ||
-        (stockFilter === "In stock" && !isLowStock);
+        stockFilter === "All stock" ||
+        (stockFilter === "Low stock"
+          ? item.stock <= item.minimum
+          : item.stock > item.minimum);
 
       return matchesSearch && matchesCategory && matchesStock;
     });
-  }, [items, search, categoryFilter, stockFilter]);
+  }, [items, search, category, stockFilter]);
 
-  function addItem(event: React.FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setError("");
+  const lowStockCount = items.filter(
+    (item) => item.stock <= item.minimum
+  ).length;
 
-    const quantity = Number(form.quantity);
-    const minimumStock = Number(form.minimumStock);
-    const costPerUnit = Number(form.costPerUnit);
+  const inventoryValue = items.reduce(
+    (total, item) => total + item.stock * item.cost,
+    0
+  );
 
-    if (
-      !form.name.trim() ||
-      !form.unit.trim() ||
-      form.quantity.trim() === "" ||
-      form.minimumStock.trim() === "" ||
-      form.costPerUnit.trim() === "" ||
-      !Number.isFinite(quantity) ||
-      !Number.isFinite(minimumStock) ||
-      !Number.isFinite(costPerUnit) ||
-      quantity < 0 ||
-      minimumStock < 0 ||
-      costPerUnit < 0
-    ) {
-      setError("Enter valid item details and non-negative numeric values.");
-      return;
-    }
-
-    setItems((current) => [
-      ...current,
-      {
-        id: Date.now(),
-        name: form.name.trim(),
-        category: form.category,
-        quantity,
-        unit: form.unit.trim(),
-        minimumStock,
-        costPerUnit,
-      },
-    ]);
-
-    setForm(emptyForm);
-    setShowForm(false);
+  function showNotice(message: string) {
+    setNotice(message);
   }
 
-  function changeQuantity(id: number, amount: number) {
+  function updateStock(id: number, amount: number) {
     setItems((current) =>
       current.map((item) =>
         item.id === id
-          ? { ...item, quantity: Math.max(0, item.quantity + amount) }
-          : item,
-      ),
+          ? {
+              ...item,
+              stock: Math.max(0, item.stock + amount),
+            }
+          : item
+      )
+    );
+
+    showNotice(
+      amount > 0
+        ? "Stock quantity increased."
+        : "Stock quantity decreased."
     );
   }
 
-  function stockLabel(item: InventoryItem) {
-    if (item.quantity === 0) return "Out of stock";
-    if (item.quantity <= item.minimumStock) return "Low stock";
-    return "In stock";
+  function addItem(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+
+    const stock = Number(newItem.stock);
+    const minimum = Number(newItem.minimum);
+    const cost = Number(newItem.cost);
+
+    if (
+      !newItem.name.trim() ||
+      !newItem.supplier.trim() ||
+      !Number.isFinite(stock) ||
+      !Number.isFinite(minimum) ||
+      !Number.isFinite(cost) ||
+      stock < 0 ||
+      minimum < 0 ||
+      cost < 0
+    ) {
+      showNotice("Please enter valid inventory details.");
+      return;
+    }
+
+    const item: InventoryItem = {
+      id: Math.max(0, ...items.map((existing) => existing.id)) + 1,
+      name: newItem.name.trim(),
+      category: newItem.category,
+      unit: newItem.unit,
+      stock,
+      minimum,
+      cost,
+      supplier: newItem.supplier.trim(),
+    };
+
+    setItems((current) => [...current, item]);
+
+    setNewItem({
+      name: "",
+      category: "Grains",
+      unit: "kg",
+      stock: "",
+      minimum: "",
+      cost: "",
+      supplier: "",
+    });
+
+    setShowAddForm(false);
+    showNotice("Inventory item added successfully.");
   }
 
   return (
     <div className="space-y-6">
+      {/* Page heading */}
       <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
         <div>
-          <h3 className="text-lg font-bold text-slate-900">
-            Inventory overview
-          </h3>
+          <p className="text-sm font-medium text-slate-500">
+            Management / Inventory
+          </p>
+
+          <h2 className="mt-1 text-2xl font-bold tracking-tight text-slate-900">
+            Inventory Management
+          </h2>
+
           <p className="mt-1 text-sm text-slate-500">
-            Monitor ingredients and update stock levels.
+            Track ingredients, monitor stock levels, and manage suppliers.
           </p>
         </div>
 
         <button
-          onClick={() => {
-            setError("");
-            setShowForm(true);
-          }}
-          className="rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-700"
+          onClick={() => setShowAddForm((value) => !value)}
+          className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-violet-700"
         >
-          + Add inventory item
+          {showAddForm ? "Cancel" : "+ Add inventory item"}
         </button>
       </div>
 
-      <div className="rounded-xl border border-amber-200 bg-amber-50 p-4">
-        <p className="text-sm font-semibold text-amber-900">
-          Demo inventory data
-        </p>
-        <p className="mt-1 text-sm text-amber-800">
-          Items and stock updates are stored in temporary page state only.
-          They are not saved to the backend.
-        </p>
-      </div>
+      {/* Notification */}
+      {notice && (
+        <div
+          role="status"
+          className="flex items-center justify-between rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm font-medium text-emerald-800"
+        >
+          <span>{notice}</span>
+
+          <button
+            onClick={() => setNotice("")}
+            className="ml-4 font-bold"
+            aria-label="Dismiss notification"
+          >
+            ×
+          </button>
+        </div>
+      )}
 
       {/* Summary cards */}
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {[
-          {
-            label: "Inventory items",
-            value: items.length,
-            icon: "▣",
-            style: "bg-violet-50 text-violet-700",
-          },
-          {
-            label: "Low stock alerts",
-            value: lowStockCount,
-            icon: "!",
-            style: "bg-amber-50 text-amber-700",
-          },
-          {
-            label: "Out of stock",
-            value: items.filter((item) => item.quantity === 0).length,
-            icon: "×",
-            style: "bg-rose-50 text-rose-700",
-          },
-          {
-            label: "Estimated stock value",
-            value: `₹${totalStockValue.toLocaleString("en-IN", {
-              maximumFractionDigits: 2,
-            })}`,
-            icon: "₹",
-            style: "bg-emerald-50 text-emerald-700",
-          },
-        ].map((stat) => (
-          <article
-            key={stat.label}
-            className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
-          >
-            <div className="flex items-center justify-between gap-3">
-              <p className="text-sm text-slate-500">{stat.label}</p>
-              <span
-                className={`flex h-10 w-10 items-center justify-center rounded-xl font-bold ${stat.style}`}
-              >
-                {stat.icon}
-              </span>
-            </div>
-            <p className="mt-4 break-words text-2xl font-bold text-slate-900">
-              {stat.value}
-            </p>
-          </article>
-        ))}
-      </section>
+      <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <SummaryCard
+          label="Total inventory items"
+          value={String(items.length)}
+          helper="Tracked ingredients"
+          symbol="▦"
+        />
 
-      {/* Low stock alerts */}
-      {lowStockCount > 0 && (
-        <section className="rounded-2xl border border-amber-200 bg-white p-5 shadow-sm">
-          <div className="flex items-start gap-3">
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-amber-100 font-bold text-amber-700">
-              !
-            </span>
-            <div>
-              <h3 className="font-bold text-slate-900">
-                Stock needs attention
-              </h3>
-              <p className="mt-1 text-sm text-slate-500">
-                {lowStockCount} item(s) are at or below their minimum stock level.
-              </p>
-              <div className="mt-3 flex flex-wrap gap-2">
-                {items
-                  .filter((item) => item.quantity <= item.minimumStock)
-                  .map((item) => (
-                    <span
-                      key={item.id}
-                      className="rounded-lg bg-amber-50 px-3 py-2 text-xs font-medium text-amber-800"
-                    >
-                      {item.name}: {item.quantity} {item.unit}
-                    </span>
-                  ))}
-              </div>
+        <SummaryCard
+          label="Low-stock items"
+          value={String(lowStockCount)}
+          helper="At or below minimum level"
+          symbol="⚠"
+          alert={lowStockCount > 0}
+        />
+
+        <SummaryCard
+          label="Estimated stock value"
+          value={money(inventoryValue)}
+          helper="Based on current quantity"
+          symbol="₹"
+        />
+
+        <SummaryCard
+          label="Categories"
+          value={String(new Set(items.map((item) => item.category)).size)}
+          helper="Ingredient groups"
+          symbol="◫"
+        />
+      </div>
+
+      {/* Add inventory form */}
+      {showAddForm && (
+        <form
+          onSubmit={addItem}
+          className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm"
+        >
+          <div className="mb-5">
+            <h3 className="font-bold text-slate-900">
+              Add inventory item
+            </h3>
+
+            <p className="mt-1 text-sm text-slate-500">
+              Enter the ingredient and stock information below.
+            </p>
+          </div>
+
+          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <FormField label="Item name">
+              <input
+                required
+                value={newItem.name}
+                onChange={(e) =>
+                  setNewItem({ ...newItem, name: e.target.value })
+                }
+                placeholder="e.g. Potatoes"
+                className={inputClass}
+              />
+            </FormField>
+
+            <FormField label="Category">
+              <select
+                value={newItem.category}
+                onChange={(e) =>
+                  setNewItem({ ...newItem, category: e.target.value })
+                }
+                className={inputClass}
+              >
+                {categories.slice(1).map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </FormField>
+
+            <FormField label="Unit">
+              <select
+                value={newItem.unit}
+                onChange={(e) =>
+                  setNewItem({ ...newItem, unit: e.target.value })
+                }
+                className={inputClass}
+              >
+                <option value="kg">Kilograms (kg)</option>
+                <option value="L">Litres (L)</option>
+                <option value="pcs">Pieces</option>
+                <option value="pack">Packs</option>
+              </select>
+            </FormField>
+
+            <FormField label="Current quantity">
+              <input
+                required
+                type="number"
+                min="0"
+                step="any"
+                value={newItem.stock}
+                onChange={(e) =>
+                  setNewItem({ ...newItem, stock: e.target.value })
+                }
+                placeholder="0"
+                className={inputClass}
+              />
+            </FormField>
+
+            <FormField label="Minimum quantity">
+              <input
+                required
+                type="number"
+                min="0"
+                step="any"
+                value={newItem.minimum}
+                onChange={(e) =>
+                  setNewItem({ ...newItem, minimum: e.target.value })
+                }
+                placeholder="0"
+                className={inputClass}
+              />
+            </FormField>
+
+            <FormField label="Cost per unit (₹)">
+              <input
+                required
+                type="number"
+                min="0"
+                step="any"
+                value={newItem.cost}
+                onChange={(e) =>
+                  setNewItem({ ...newItem, cost: e.target.value })
+                }
+                placeholder="0.00"
+                className={inputClass}
+              />
+            </FormField>
+
+            <FormField label="Supplier">
+              <input
+                required
+                value={newItem.supplier}
+                onChange={(e) =>
+                  setNewItem({ ...newItem, supplier: e.target.value })
+                }
+                placeholder="Supplier name"
+                className={inputClass}
+              />
+            </FormField>
+
+            <div className="flex items-end">
+              <button
+                type="submit"
+                className="w-full rounded-xl bg-slate-900 px-4 py-2.5 text-sm font-semibold text-white hover:bg-slate-800"
+              >
+                Save item
+              </button>
             </div>
           </div>
-        </section>
+        </form>
       )}
 
       {/* Inventory table */}
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-4 border-b border-slate-200 p-5 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-3 border-b border-slate-100 p-4 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h3 className="font-bold text-slate-900">Stock items</h3>
+            <h3 className="font-bold text-slate-900">Stock overview</h3>
+
             <p className="mt-1 text-sm text-slate-500">
-              Search, filter, and adjust stock quantities.
+              {filteredItems.length} of {items.length} items
             </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <div className="flex flex-col gap-2 sm:flex-row">
             <input
               value={search}
-              onChange={(event) => setSearch(event.target.value)}
-              placeholder="Search item..."
-              className="rounded-xl border border-slate-200 px-3 py-2.5 text-sm outline-none focus:border-violet-400"
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Search item or supplier..."
+              className={`${inputClass} sm:w-60`}
             />
 
             <select
-              value={categoryFilter}
-              onChange={(event) => setCategoryFilter(event.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-violet-400"
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className={inputClass}
             >
-              {categories.map((category) => (
-                <option key={category} value={category}>
-                  {category === "All" ? "All categories" : category}
+              {categories.map((option) => (
+                <option key={option} value={option}>
+                  {option}
                 </option>
               ))}
             </select>
 
             <select
               value={stockFilter}
-              onChange={(event) => setStockFilter(event.target.value)}
-              className="rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm outline-none focus:border-violet-400"
+              onChange={(e) => setStockFilter(e.target.value)}
+              className={inputClass}
             >
-              <option value="All">All stock levels</option>
+              <option value="All stock">All stock</option>
               <option value="Low stock">Low stock</option>
-              <option value="In stock">In stock</option>
+              <option value="Healthy stock">Healthy stock</option>
             </select>
           </div>
         </div>
@@ -299,70 +410,112 @@ function Inventory() {
           <table className="w-full min-w-[850px] text-left text-sm">
             <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
               <tr>
-                <th className="px-5 py-4">Item</th>
-                <th className="px-5 py-4">Category</th>
-                <th className="px-5 py-4">Quantity</th>
-                <th className="px-5 py-4">Minimum stock</th>
-                <th className="px-5 py-4">Unit cost</th>
-                <th className="px-5 py-4">Stock value</th>
-                <th className="px-5 py-4">Status</th>
-                <th className="px-5 py-4">Adjust</th>
+                <th className="px-5 py-3 font-semibold">Ingredient</th>
+                <th className="px-5 py-3 font-semibold">Category</th>
+                <th className="px-5 py-3 font-semibold">Stock level</th>
+                <th className="px-5 py-3 font-semibold">Unit cost</th>
+                <th className="px-5 py-3 font-semibold">Stock value</th>
+                <th className="px-5 py-3 font-semibold">Supplier</th>
+                <th className="px-5 py-3 text-right font-semibold">
+                  Quick update
+                </th>
               </tr>
             </thead>
 
             <tbody className="divide-y divide-slate-100">
               {filteredItems.map((item) => {
-                const label = stockLabel(item);
-                const statusClass =
-                  label === "Out of stock"
-                    ? "bg-rose-50 text-rose-700"
-                    : label === "Low stock"
-                      ? "bg-amber-50 text-amber-700"
-                      : "bg-emerald-50 text-emerald-700";
+                const isLow = item.stock <= item.minimum;
+
+                const progress =
+                  item.minimum > 0
+                    ? Math.min(100, (item.stock / (item.minimum * 2)) * 100)
+                    : 100;
 
                 return (
-                  <tr key={item.id} className="hover:bg-slate-50">
-                    <td className="px-5 py-4 font-semibold text-slate-900">
-                      {item.name}
-                    </td>
-                    <td className="px-5 py-4 text-slate-600">
-                      {item.category}
-                    </td>
-                    <td className="whitespace-nowrap px-5 py-4 font-medium text-slate-800">
-                      {item.quantity} {item.unit}
-                    </td>
-                    <td className="px-5 py-4 text-slate-600">
-                      {item.minimumStock} {item.unit}
-                    </td>
-                    <td className="whitespace-nowrap px-5 py-4 text-slate-600">
-                      ₹{item.costPerUnit.toFixed(2)}
-                    </td>
-                    <td className="whitespace-nowrap px-5 py-4 font-medium text-slate-800">
-                      ₹{(item.quantity * item.costPerUnit).toLocaleString("en-IN", {
-                        maximumFractionDigits: 2,
-                      })}
-                    </td>
+                  <tr
+                    key={item.id}
+                    className="transition hover:bg-slate-50/70"
+                  >
                     <td className="px-5 py-4">
-                      <span
-                        className={`whitespace-nowrap rounded-full px-3 py-1.5 text-xs font-semibold ${statusClass}`}
-                      >
-                        {label}
+                      <div className="font-semibold text-slate-900">
+                        {item.name}
+                      </div>
+
+                      <div className="mt-0.5 text-xs text-slate-500">
+                        SKU-{String(item.id).padStart(4, "0")}
+                      </div>
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <span className="rounded-lg bg-slate-100 px-2.5 py-1 text-xs font-medium text-slate-600">
+                        {item.category}
                       </span>
                     </td>
+
                     <td className="px-5 py-4">
                       <div className="flex items-center gap-2">
+                        <span
+                          className={`font-semibold ${
+                            isLow ? "text-rose-600" : "text-slate-800"
+                          }`}
+                        >
+                          {item.stock} {item.unit}
+                        </span>
+
+                        <span
+                          className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                            isLow
+                              ? "bg-rose-50 text-rose-700"
+                              : "bg-emerald-50 text-emerald-700"
+                          }`}
+                        >
+                          {isLow ? "Low stock" : "In stock"}
+                        </span>
+                      </div>
+
+                      <div className="mt-2 h-1.5 w-28 overflow-hidden rounded-full bg-slate-100">
+                        <div
+                          className={`h-full rounded-full ${
+                            isLow ? "bg-rose-500" : "bg-emerald-500"
+                          }`}
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+
+                      <div className="mt-1 text-xs text-slate-400">
+                        Minimum: {item.minimum} {item.unit}
+                      </div>
+                    </td>
+
+                    <td className="px-5 py-4 text-slate-600">
+                      {money(item.cost)}
+                    </td>
+
+                    <td className="px-5 py-4 font-medium text-slate-800">
+                      {money(item.stock * item.cost)}
+                    </td>
+
+                    <td className="px-5 py-4 text-slate-600">
+                      {item.supplier}
+                    </td>
+
+                    <td className="px-5 py-4">
+                      <div className="flex justify-end gap-2">
                         <button
-                          aria-label={`Decrease ${item.name} stock`}
-                          onClick={() => changeQuantity(item.id, -1)}
-                          disabled={item.quantity === 0}
-                          className="h-8 w-8 rounded-lg border border-slate-200 font-bold text-slate-700 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
+                          type="button"
+                          aria-label={`Deduct one ${item.name}`}
+                          onClick={() => updateStock(item.id, -1)}
+                          disabled={item.stock <= 0}
+                          className="h-8 w-8 rounded-lg border border-slate-200 font-bold text-slate-600 hover:bg-slate-100 disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           −
                         </button>
+
                         <button
-                          aria-label={`Increase ${item.name} stock`}
-                          onClick={() => changeQuantity(item.id, 1)}
-                          className="h-8 w-8 rounded-lg border border-slate-200 font-bold text-violet-700 hover:bg-violet-50"
+                          type="button"
+                          aria-label={`Add one ${item.name}`}
+                          onClick={() => updateStock(item.id, 1)}
+                          className="h-8 w-8 rounded-lg border border-violet-200 bg-violet-50 font-bold text-violet-700 hover:bg-violet-100"
                         >
                           +
                         </button>
@@ -374,12 +527,13 @@ function Inventory() {
 
               {filteredItems.length === 0 && (
                 <tr>
-                  <td colSpan={8} className="px-5 py-12 text-center">
-                    <p className="font-semibold text-slate-700">
+                  <td colSpan={7} className="px-5 py-12 text-center">
+                    <div className="font-semibold text-slate-700">
                       No inventory items found
-                    </p>
+                    </div>
+
                     <p className="mt-1 text-sm text-slate-500">
-                      Change the filters or add a new item.
+                      Try another search or change your filters.
                     </p>
                   </td>
                 </tr>
@@ -388,183 +542,72 @@ function Inventory() {
           </table>
         </div>
 
-        <div className="border-t border-slate-200 px-5 py-4 text-xs text-slate-500">
-          Showing {filteredItems.length} of {items.length} items
+        <div className="flex flex-col gap-2 border-t border-slate-100 px-5 py-3 text-xs text-slate-500 sm:flex-row sm:items-center sm:justify-between">
+          <span>
+            Stock status is based on each item's minimum quantity.
+          </span>
+
+          <span>
+            Demo only: changes are not saved to the database.
+          </span>
         </div>
       </section>
-
-      {/* Add inventory modal */}
-      {showForm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/50 p-4"
-          onClick={() => setShowForm(false)}
-        >
-          <section
-            role="dialog"
-            aria-modal="true"
-            aria-labelledby="inventory-form-title"
-            className="max-h-[90vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-6 shadow-2xl"
-            onClick={(event) => event.stopPropagation()}
-          >
-            <div className="flex items-center justify-between">
-              <div>
-                <h3
-                  id="inventory-form-title"
-                  className="text-xl font-bold text-slate-900"
-                >
-                  Add inventory item
-                </h3>
-                <p className="mt-1 text-sm text-slate-500">
-                  Enter the ingredient and stock details.
-                </p>
-              </div>
-              <button
-                onClick={() => setShowForm(false)}
-                aria-label="Close form"
-                className="rounded-lg px-3 py-2 text-lg text-slate-400 hover:bg-slate-100"
-              >
-                ×
-              </button>
-            </div>
-
-            <form onSubmit={addItem} className="mt-6 space-y-4">
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                  Item name
-                </label>
-                <input
-                  required
-                  value={form.name}
-                  onChange={(event) =>
-                    setForm({ ...form, name: event.target.value })
-                  }
-                  placeholder="e.g. Potatoes"
-                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-400"
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Category
-                  </label>
-                  <select
-                    value={form.category}
-                    onChange={(event) =>
-                      setForm({ ...form, category: event.target.value })
-                    }
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-violet-400"
-                  >
-                    {["Vegetables", "Grains", "Dairy", "Oils", "Spices", "Other"].map(
-                      (category) => (
-                        <option key={category} value={category}>
-                          {category}
-                        </option>
-                      ),
-                    )}
-                  </select>
-                </div>
-
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Unit
-                  </label>
-                  <select
-                    value={form.unit}
-                    onChange={(event) =>
-                      setForm({ ...form, unit: event.target.value })
-                    }
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-3 text-sm outline-none focus:border-violet-400"
-                  >
-                    {["kg", "g", "L", "ml", "pcs", "pack"].map((unit) => (
-                      <option key={unit} value={unit}>
-                        {unit}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Current quantity
-                  </label>
-                  <input
-                    required
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={form.quantity}
-                    onChange={(event) =>
-                      setForm({ ...form, quantity: event.target.value })
-                    }
-                    className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-violet-400"
-                  />
-                </div>
-
-                <div>
-                  <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                    Minimum stock
-                  </label>
-                  <input
-                    required
-                    type="number"
-                    min="0"
-                    step="any"
-                    value={form.minimumStock}
-                    onChange={(event) =>
-                      setForm({ ...form, minimumStock: event.target.value })
-                    }
-                    className="w-full rounded-xl border border-slate-200 px-3 py-3 text-sm outline-none focus:border-violet-400"
-                  />
-                </div>
-              </div>
-
-              <div>
-                <label className="mb-1.5 block text-sm font-medium text-slate-700">
-                  Cost per unit (₹)
-                </label>
-                <input
-                  required
-                  type="number"
-                  min="0"
-                  step="any"
-                  value={form.costPerUnit}
-                  onChange={(event) =>
-                    setForm({ ...form, costPerUnit: event.target.value })
-                  }
-                  className="w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-400"
-                />
-              </div>
-
-              {error && (
-                <p role="alert" className="text-sm text-rose-600">
-                  {error}
-                </p>
-              )}
-
-              <div className="flex gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowForm(false)}
-                  className="flex-1 rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-700"
-                >
-                  Add item
-                </button>
-              </div>
-            </form>
-          </section>
-        </div>
-      )}
     </div>
   );
 }
 
-export default Inventory;
+function SummaryCard({
+  label,
+  value,
+  helper,
+  symbol,
+  alert = false,
+}: {
+  label: string;
+  value: string;
+  helper: string;
+  symbol: string;
+  alert?: boolean;
+}) {
+  return (
+    <div className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <div className="flex items-start justify-between">
+        <p className="text-sm font-medium text-slate-500">{label}</p>
+
+        <span
+          className={`flex h-9 w-9 items-center justify-center rounded-xl text-sm font-bold ${
+            alert
+              ? "bg-rose-50 text-rose-600"
+              : "bg-violet-50 text-violet-700"
+          }`}
+        >
+          {symbol}
+        </span>
+      </div>
+
+      <div className="mt-3 text-2xl font-bold tracking-tight text-slate-900">
+        {value}
+      </div>
+
+      <p className="mt-1 text-xs text-slate-500">{helper}</p>
+    </div>
+  );
+}
+
+function FormField({
+  label,
+  children,
+}: {
+  label: string;
+  children: ReactNode;
+}) {
+  return (
+    <label className="block">
+      <span className="mb-1.5 block text-xs font-semibold text-slate-600">
+        {label}
+      </span>
+
+      {children}
+    </label>
+  );
+}

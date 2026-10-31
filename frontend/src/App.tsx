@@ -7,16 +7,30 @@ import Orders from "./pages/Orders";
 import Settings from "./pages/Settings";
 import Reports from "./pages/Reports";
 import KitchenDisplay from "./pages/KitchenDisplay";
+import CustomerOrdering from "./pages/CustomerOrdering";
+import POS from "./pages/POS";
+import MenuVoting from "./pages/MenuVoting";
+import CustomerRatings from "./pages/CustomerRatings";
+import LiveOrderDisplay from "./pages/LiveOrderDisplay";
+import Inventory from "./pages/Inventory";
 
 const navigation = [
 
-  { name: "Dashboard", symbol: "▦", group: "OVERVIEW" },
+{ name: "Dashboard", symbol: "▦", group: "OVERVIEW" },
   { name: "Orders", symbol: "▤", group: "OVERVIEW" },
+  { name: "Kitchen Display", symbol: "🍳", group: "OVERVIEW" },
+  { name: "Live Display", symbol: "📺", group: "OVERVIEW" },
+  { name: "Customer Ordering", symbol: "🛒", group: "OVERVIEW" },
+  { name: "POS", symbol: "₹", group: "OVERVIEW" },
   { name: "Restaurants", symbol: "⌂", group: "MANAGEMENT" },
   { name: "Menu", symbol: "☷", group: "MANAGEMENT" },
   { name: "Categories", symbol: "▧", group: "MANAGEMENT" },
   { name: "Inventory", symbol: "▣", group: "MANAGEMENT" },
+  { name: "Menu Voting", symbol: "🗳️", group: "MANAGEMENT" },
+  { name: "Ratings", symbol: "⭐", group: "MANAGEMENT" },
+  { name: "Reports", symbol: "📊", group: "MANAGEMENT" },
   { name: "Settings", symbol: "⚙", group: "SYSTEM" },
+  { name: "Inventory", symbol: "▣", group: "MANAGEMENT" },
 ];
 
 function App() {
@@ -48,13 +62,27 @@ function App() {
 
       case "Orders":
         return <Orders />;
-      case "Inventory":
+      
       case "Settings":
          return <Settings />;
       case "Reports":
         return <Reports />;
       case "KitchenDisplay":
         return <KitchenDisplay />;  
+      case "CustomerOrdering":
+        return <CustomerOrdering />;  
+      case "POS":
+        return <POS />; 
+      case "MenuVoting":
+        return <MenuVoting />;
+      case "CustomerRatings":
+        return <CustomerRatings />;  
+      case "LiveOrderDisplay":
+        return <LiveOrderDisplay />;  
+      case "Inventory": 
+        return <Inventory />;
+
+    
 
         return (
           <section className="rounded-2xl border border-slate-200 bg-white p-8 shadow-sm">
@@ -116,7 +144,7 @@ function App() {
                       <button
                         key={item.name}
                         onClick={() => setActivePage(item.name)}
-                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-medium transition ${
+                        className={`flex w-full items-center gap-3 rounded-xl  px-3 py-3 text-left text-sm font-medium transition ${
                           isActive
                             ? "bg-violet-600 text-white shadow-lg shadow-violet-950/30"
                             : "text-slate-400 hover:bg-slate-800 hover:text-white"
