@@ -1,6 +1,7 @@
 
 import { useEffect, useState } from "react";
 import { apiRequest } from "../api/apiClient";
+import { chooseRestaurantId, storeSelectedRestaurantId } from "../api/restaurantSelection";
 
 type SettingsTab = "Restaurant" | "General" | "Orders" | "Notifications";
 
@@ -22,6 +23,7 @@ type SettingsForm = {
 type Restaurant = {
   id: number;
   name: string;
+  is_active: boolean;
 };
 
 type ToggleProps = {
@@ -90,10 +92,9 @@ export default function Settings() {
     void (async () => {
       try {
         const data = await apiRequest<Restaurant[]>("/restaurants/?include_inactive=true");
-        if (data.length > 0) {
-          setRestaurants(data);
-          setRestaurantId(data[0].id);
-        }
+        const activeRestaurants = data.filter((restaurant) => restaurant.is_active);
+        setRestaurants(activeRestaurants);
+        setRestaurantId(chooseRestaurantId(activeRestaurants));
       } catch (requestError) {
         setError(requestError instanceof Error ? requestError.message : "Unable to load restaurants.");
       }
@@ -172,7 +173,15 @@ export default function Settings() {
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">Settings</h1>
             <p className="mt-1 text-sm text-slate-500">Manage your restaurant preferences and application settings.</p>
           </div>
-          <select value={restaurantId ?? ""} onChange={(event) => setRestaurantId(Number(event.target.value))} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 focus:border-indigo-500">
+          <select
+            value={restaurantId ?? ""}
+            onChange={(event) => {
+              const selectedId = Number(event.target.value);
+              storeSelectedRestaurantId(selectedId);
+              setRestaurantId(selectedId);
+            }}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 focus:border-indigo-500"
+          >
             {restaurants.map((restaurant) => (
               <option key={restaurant.id} value={restaurant.id}>{restaurant.name}</option>
             ))}

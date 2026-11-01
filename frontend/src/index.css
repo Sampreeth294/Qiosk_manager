@@ -12,3 +12,114 @@ body {
   min-width: 320px;
   min-height: 100vh;
 }
+
+@keyframes kiosk-float {
+  0%,
+  100% {
+    translate: 0 0;
+  }
+  50% {
+    translate: 0 -12px;
+  }
+}
+
+@keyframes entry-slide-left {
+  from {
+    opacity: 0;
+    translate: -56px 0;
+    filter: blur(5px);
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    filter: blur(0);
+  }
+}
+
+.entry-from-left,
+.entry-from-right,
+.word-from-left,
+.word-from-right {
+  animation-duration: 1250ms;
+  animation-timing-function: cubic-bezier(0.16, 1, 0.3, 1);
+  animation-fill-mode: both;
+}
+
+.entry-from-left,
+.word-from-left {
+  animation-name: entry-slide-left;
+}
+
+@keyframes entry-slide-right {
+  from {
+    opacity: 0;
+    translate: 56px 0;
+    filter: blur(5px);
+  }
+  to {
+    opacity: 1;
+    translate: 0 0;
+    filter: blur(0);
+  }
+}
+
+.entry-from-right,
+.word-from-right {
+  animation-name: entry-slide-right;
+}
+
+.entry-delay-1,
+.word-delay-1 {
+  animation-delay: 140ms;
+}
+
+.entry-delay-2,
+.word-delay-2 {
+  animation-delay: 300ms;
+}
+
+.word-delay-3 {
+  animation-delay: 460ms;
+}
+
+.word-delay-4 {
+  animation-delay: 620ms;
+}
+
+.word-delay-5 {
+  animation-delay: 780ms;
+}
+
+.word-delay-6 {
+  animation-delay: 940ms;
+}
+
+.entry-delay-4 {
+  animation-delay: 850ms;
+}
+
+.entry-delay-5 {
+  animation-delay: 1050ms;
+}
+
+.entry-delay-6 {
+  animation-delay: 1250ms;
+}
+
+.entry-delay-7 {
+  animation-delay: 1450ms;
+}
+
+.kiosk-float {
+  animation: kiosk-float 7s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .kiosk-float,
+  .entry-from-left,
+  .entry-from-right,
+  .word-from-left,
+  .word-from-right {
+    animation: none;
+  }
+}

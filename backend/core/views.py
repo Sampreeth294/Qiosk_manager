@@ -10,7 +10,9 @@ from django.db.models import Avg, Count, F, Q, Sum
 from django.shortcuts import get_object_or_404
 from django.db import IntegrityError, transaction
 from django.core import signing
+from django.core.cache import cache
 from django.utils import timezone
+from django.views.decorators.csrf import csrf_protect
 
 from rest_framework import status
 from rest_framework.decorators import api_view, permission_classes
@@ -18,11 +20,13 @@ from rest_framework.permissions import AllowAny
 from rest_framework.response import Response
 
 from .models import (
+    Expense,
     FoodRating,
     Ingredient,
     MenuCategory,
     MenuItem,
     MenuVote,
+    MenuVotingPeriod,
     Order,
     OrderItem,
     PurchaseOrder,
@@ -33,7 +37,6 @@ from .models import (
 )
 
 from .serializers import (
-    FoodRatingSerializer,
     MenuVoteSerializer,
     RestaurantNotificationSerializer,
     RestaurantSerializer,
@@ -51,10 +54,14 @@ from .restaurant_permissions import (
 )
 
 
-MANAGER_ROLES = [RestaurantMembership.Role.MANAGER]
+MANAGER_ROLES = [
+    RestaurantMembership.Role.OWNER,
+    RestaurantMembership.Role.MANAGER,
+]
 OPERATIONAL_ROLES = [
     RestaurantMembership.Role.STAFF,
     RestaurantMembership.Role.MANAGER,
+    RestaurantMembership.Role.OWNER,
 ]
 MENU_VOTE_COOKIE = "qiosk_menu_voter"
 MENU_VOTE_COOKIE_MAX_AGE = 60 * 60 * 24 * 365
@@ -80,6 +87,18 @@ def _anonymous_voter_key(request, create=False):
     voter_id = uuid.uuid4().hex
     cookie_value = signing.dumps(voter_id, salt="core.menu-vote")
     return hashlib.sha256(voter_id.encode("ascii")).hexdigest(), cookie_value
+
+
+def _request_rate_limited(request, scope, limit=120, window=3600):
+    ip_address = request.META.get("REMOTE_ADDR", "unknown")
+    key = f"qiosk-rate:{scope}:{hashlib.sha256(ip_address.encode()).hexdigest()}"
+    if cache.add(key, 1, timeout=window):
+        return False
+    try:
+        return cache.incr(key) > limit
+    except ValueError:
+        cache.add(key, 1, timeout=window)
+        return False
 
 
 def _membership_denial(request, restaurant_id, roles=None):
@@ -238,7 +257,8 @@ def public_live_display(request):
             "restaurant": {"id": restaurant.pk, "name": restaurant.name},
             "orders": [
                 {
-                    "public_number": str(order.order_number).replace("-", "")[:8].upper(),
+                    "public_number": order.display_order_number
+                    or str(order.order_number).replace("-", "")[:8].upper(),
                     "status": order.status,
                     "created_at": order.created_at,
                 }
@@ -624,6 +644,7 @@ def order_list(request):
 
 @api_view(["POST"])
 @permission_classes([AllowAny])
+@csrf_protect
 def create_order(request):
     serializer = OrderCreateSerializer(data=request.data)
 
@@ -776,6 +797,8 @@ def analytics_summary(request):
     start_date = request.query_params.get("start_date")
     end_date = request.query_params.get("end_date")
     today = timezone.now().astimezone(report_timezone).date()
+    if request.query_params.get("range") == "today" and not start_date and not end_date:
+        start_date = end_date = today.isoformat()
 
     if start_date:
         try:
@@ -828,9 +851,11 @@ def analytics_summary(request):
             )
         )
 
-    total_revenue = qs.aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00")
+    revenue_orders = qs.exclude(status=Order.OrderStatus.CANCELLED)
     order_count = qs.count()
-    avg_order_value = (total_revenue / order_count) if order_count else Decimal("0.00")
+    total_revenue = revenue_orders.aggregate(total=Sum("total_amount"))["total"] or Decimal("0.00")
+    revenue_order_count = revenue_orders.count()
+    avg_order_value = (total_revenue / revenue_order_count) if revenue_order_count else Decimal("0.00")
 
     status_counts = {
         status: qs.filter(status=status).count()
@@ -889,7 +914,7 @@ def analytics_summary(request):
         day_total = sales_orders.filter(
             created_at__gte=day_start,
             created_at__lt=next_day_start,
-        ).aggregate(
+        ).exclude(status=Order.OrderStatus.CANCELLED).aggregate(
             value=Sum("total_amount")
         )["value"] or Decimal("0.00")
         sales_series.append({
@@ -899,7 +924,7 @@ def analytics_summary(request):
         })
 
     best_sellers = (
-        OrderItem.objects.filter(order__in=qs)
+        OrderItem.objects.filter(order__in=revenue_orders)
         .values("menu_item__name", "menu_item__category__name")
         .annotate(
             sold=Sum("quantity"),
@@ -927,6 +952,21 @@ def analytics_summary(request):
         category__is_active=True,
         is_active=True,
     )
+    voting_target_date = today + timedelta(days=1)
+    ratings = FoodRating.objects.filter(restaurant__in=restaurant_queryset)
+    rating_summary = ratings.aggregate(average=Avg("rating"), count=Count("id"))
+    expense_start = date.fromisoformat(start_date) if start_date else today - timedelta(days=30)
+    expense_end = date.fromisoformat(end_date) if end_date else today
+    expenses = Expense.objects.filter(
+        restaurant__in=restaurant_queryset,
+        date__gte=expense_start,
+        date__lte=expense_end,
+    )
+    expense_summary = expenses.aggregate(total=Sum("amount"), count=Count("id"))
+    expenses_by_category = expenses.values("category").annotate(
+        total=Sum("amount"),
+        count=Count("id"),
+    ).order_by("category")
 
     payload = {
         "restaurant_id": int(
@@ -950,6 +990,10 @@ def analytics_summary(request):
             "pending_orders": qs.filter(status=Order.OrderStatus.PENDING).count(),
         },
         "status_counts": status_counts,
+        "current_status_counts": {
+            order_status: sales_orders.filter(status=order_status).count()
+            for order_status, _ in Order.OrderStatus.choices
+        },
         "sales_series": sales_series,
         "best_sellers": [
             {
@@ -981,10 +1025,27 @@ def analytics_summary(request):
         },
         "voting_summary": {
             "eligible_options": vote_options.count(),
-            "votes_today": MenuVote.objects.filter(
+            "target_date": voting_target_date.isoformat(),
+            "votes_for_tomorrow": MenuVote.objects.filter(
                 restaurant__in=restaurant_queryset,
-                vote_date=today,
+                vote_date=voting_target_date,
             ).count(),
+        },
+        "rating_summary": {
+            "average": float(rating_summary["average"] or 0),
+            "count": rating_summary["count"],
+        },
+        "expense_summary": {
+            "total": float(expense_summary["total"] or Decimal("0.00")),
+            "count": expense_summary["count"],
+            "by_category": [
+                {
+                    "category": item["category"],
+                    "total": float(item["total"]),
+                    "count": item["count"],
+                }
+                for item in expenses_by_category
+            ],
         },
     }
     return Response(payload)
@@ -992,6 +1053,7 @@ def analytics_summary(request):
 
 @api_view(["GET", "POST", "PATCH", "DELETE"])
 @permission_classes([AllowAny])
+@csrf_protect
 def menu_vote_view(request):
     restaurant_id = (
         request.query_params.get("restaurant_id")
@@ -1015,11 +1077,7 @@ def menu_vote_view(request):
         denied = _membership_denial(
             request,
             restaurant_id,
-            (
-                MANAGER_ROLES
-                if request.method in {"PATCH", "DELETE"}
-                else OPERATIONAL_ROLES
-            ),
+            MANAGER_ROLES,
         )
         if denied:
             return denied
@@ -1032,34 +1090,51 @@ def menu_vote_view(request):
             {"detail": "The restaurant timezone setting is invalid."},
             status=status.HTTP_400_BAD_REQUEST,
         )
-    vote_date = timezone.now().astimezone(poll_timezone).date()
-    voting_is_open = setting.menu_voting_enabled
-    options = MenuItem.objects.filter(
+    local_now = timezone.now().astimezone(poll_timezone)
+    target_date = local_now.date() + timedelta(days=1)
+    period, _ = MenuVotingPeriod.objects.get_or_create(
+        restaurant=restaurant,
+        target_date=target_date,
+    )
+    scheduled_open = period.starts_at <= local_now.time().replace(tzinfo=None) < period.ends_at
+    voting_is_open = setting.menu_voting_enabled and period.is_open and scheduled_open
+    eligible_options = MenuItem.objects.filter(
         category__restaurant=restaurant,
         category__is_active=True,
         is_active=True,
     ).select_related("category").order_by("category__name", "name")
+    options = (
+        eligible_options
+        if period.use_all_active_items
+        else eligible_options.filter(voting_periods=period)
+    )
 
     if request.method == "GET":
         if manage:
             votes = MenuVote.objects.filter(
                 restaurant=restaurant,
-                vote_date=vote_date,
+                vote_date=target_date,
             ).select_related("menu_item")
             return Response(
                 {
                     "restaurant": {"id": restaurant.pk, "name": restaurant.name},
-                    "vote_date": vote_date,
+                    "vote_date": target_date,
                     "is_open": voting_is_open,
+                    "starts_at": period.starts_at.strftime("%H:%M"),
+                    "ends_at": period.ends_at.strftime("%H:%M"),
+                    "publish_results": period.publish_results,
+                    "use_all_active_items": period.use_all_active_items,
                     "total_votes": votes.count(),
                     "options": [
                         {
                             "id": item.pk,
                             "name": item.name,
                             "category": item.category.name,
+                            "image_url": request.build_absolute_uri(item.image.url) if item.image else None,
+                            "eligible": options.filter(pk=item.pk).exists(),
                             "votes": votes.filter(menu_item=item).count(),
                         }
-                        for item in options
+                        for item in eligible_options
                     ],
                 }
             )
@@ -1071,31 +1146,33 @@ def menu_vote_view(request):
             voter_key, cookie_value = _anonymous_voter_key(request, create=True)
         existing_vote = MenuVote.objects.filter(
             restaurant=restaurant,
-            vote_date=vote_date,
+            vote_date=target_date,
             **({"user": user} if user else {"anonymous_key": voter_key}),
         ).first()
         response = Response(
             {
                 "restaurant": {"id": restaurant.pk, "name": restaurant.name},
                 "period": {
-                    "vote_date": vote_date,
+                    "vote_date": target_date,
+                    "start_time": period.starts_at.strftime("%H:%M"),
+                    "end_time": period.ends_at.strftime("%H:%M"),
                     "starts_at": timezone.make_aware(
-                        datetime.combine(vote_date, datetime.min.time()),
+                        datetime.combine(target_date - timedelta(days=1), period.starts_at),
                         poll_timezone,
                     ),
                     "ends_at": timezone.make_aware(
-                        datetime.combine(vote_date + timedelta(days=1), datetime.min.time()),
+                        datetime.combine(target_date - timedelta(days=1), period.ends_at),
                         poll_timezone,
                     ),
                     "is_open": voting_is_open,
                 },
-                "results_visible": not voting_is_open,
+                "results_visible": period.publish_results and not voting_is_open,
                 "total_votes": (
                     MenuVote.objects.filter(
                         restaurant=restaurant,
-                        vote_date=vote_date,
+                        vote_date=target_date,
                     ).count()
-                    if not voting_is_open
+                    if period.publish_results and not voting_is_open
                     else None
                 ),
                 "my_vote": existing_vote.menu_item_id if existing_vote else None,
@@ -1105,16 +1182,17 @@ def menu_vote_view(request):
                         "name": item.name,
                         "description": item.description,
                         "category": item.category.name,
+                        "image_url": request.build_absolute_uri(item.image.url) if item.image else None,
                         "price": item.price,
                         **(
                             {
                                 "votes": MenuVote.objects.filter(
                                     restaurant=restaurant,
-                                    vote_date=vote_date,
+                                    vote_date=target_date,
                                     menu_item=item,
                                 ).count()
                             }
-                            if not voting_is_open
+                            if period.publish_results and not voting_is_open
                             else {}
                         ),
                     }
@@ -1136,20 +1214,70 @@ def menu_vote_view(request):
     if request.method == "DELETE":
         deleted, _ = MenuVote.objects.filter(
             restaurant=restaurant,
-            vote_date=vote_date,
+            vote_date=target_date,
         ).delete()
         return Response({"deleted": deleted})
 
     if request.method == "PATCH":
-        is_open = request.data.get("is_open")
-        if not isinstance(is_open, bool):
+        if "eligible_menu_item_ids" in request.data and "use_all_active_items" in request.data:
             return Response(
-                {"detail": "is_open must be a boolean."},
-                status=status.HTTP_400_BAD_REQUEST,
+                {"detail": "Choose either an explicit dish list or all active dishes, not both."},
+                status=400,
             )
-        setting.menu_voting_enabled = is_open
-        setting.save(update_fields=["menu_voting_enabled", "updated_at"])
-        return Response({"is_open": setting.menu_voting_enabled})
+        selected_items = None
+        if "is_open" in request.data:
+            is_open = request.data["is_open"]
+            if not isinstance(is_open, bool):
+                return Response({"detail": "is_open must be a boolean."}, status=400)
+            period.is_open = is_open
+
+        for field in ("starts_at", "ends_at"):
+            if field in request.data:
+                try:
+                    setattr(period, field, datetime.strptime(request.data[field], "%H:%M").time())
+                except (TypeError, ValueError):
+                    return Response({field: ["Use 24-hour HH:MM time."]}, status=400)
+
+        if "publish_results" in request.data:
+            if not isinstance(request.data["publish_results"], bool):
+                return Response({"publish_results": ["Expected a boolean."]}, status=400)
+            period.publish_results = request.data["publish_results"]
+
+        if "eligible_menu_item_ids" in request.data:
+            item_ids = request.data["eligible_menu_item_ids"]
+            if not isinstance(item_ids, list) or any(
+                not isinstance(item_id, int) or isinstance(item_id, bool)
+                for item_id in item_ids
+            ):
+                return Response({"eligible_menu_item_ids": ["Expected a list of menu item IDs."]}, status=400)
+            if len(item_ids) != len(set(item_ids)):
+                return Response({"eligible_menu_item_ids": ["Duplicate dish IDs are not allowed."]}, status=400)
+            valid_items = eligible_options.filter(pk__in=item_ids)
+            if valid_items.count() != len(set(item_ids)):
+                return Response({"eligible_menu_item_ids": ["All selected dishes must be active in this restaurant."]}, status=400)
+            period.use_all_active_items = False
+            selected_items = valid_items
+
+        if "use_all_active_items" in request.data:
+            use_all = request.data["use_all_active_items"]
+            if not isinstance(use_all, bool):
+                return Response({"use_all_active_items": ["Expected a boolean."]}, status=400)
+            period.use_all_active_items = use_all
+            if use_all:
+                period.eligible_items.clear()
+
+        if period.ends_at <= period.starts_at:
+            return Response({"detail": "Voting end time must be after its start time."}, status=400)
+        period.save()
+        if selected_items is not None:
+            period.eligible_items.set(selected_items)
+        return Response({
+            "is_open": period.is_open,
+            "starts_at": period.starts_at.strftime("%H:%M"),
+            "ends_at": period.ends_at.strftime("%H:%M"),
+            "publish_results": period.publish_results,
+            "use_all_active_items": period.use_all_active_items,
+        })
 
     menu_item_id = request.data.get("menu_item_id")
     if not menu_item_id:
@@ -1183,13 +1311,13 @@ def menu_vote_view(request):
             vote = MenuVote.objects.create(
                 restaurant=restaurant,
                 menu_item=menu_item,
-                vote_date=vote_date,
+                vote_date=target_date,
                 **identity,
             )
     except IntegrityError:
         if not MenuVote.objects.filter(
             restaurant=restaurant,
-            vote_date=vote_date,
+            vote_date=target_date,
             **identity,
         ).exists():
             raise
@@ -1221,66 +1349,148 @@ def menu_vote_view(request):
 
 
 @api_view(["GET", "POST"])
+@permission_classes([AllowAny])
+@csrf_protect
 def food_rating_view(request):
-    if not request.user.is_authenticated:
-        return Response(
-            {"detail": "Authentication is required."},
-            status=status.HTTP_401_UNAUTHORIZED,
-        )
-
-    restaurant_id = request.query_params.get("restaurant_id") or request.data.get("restaurant_id")
-    if not restaurant_id:
-        return Response({"detail": "restaurant_id is required."}, status=status.HTTP_400_BAD_REQUEST)
-    if not str(restaurant_id).isdigit():
-        return Response({"detail": "restaurant_id must be a positive integer."}, status=status.HTTP_400_BAD_REQUEST)
-
-    restaurant_id = int(restaurant_id)
-    if not has_restaurant_role(request.user, restaurant_id, OPERATIONAL_ROLES):
-        return Response({"detail": "You do not have access to this restaurant."}, status=status.HTTP_403_FORBIDDEN)
-
     if request.method == "GET":
-        ratings = FoodRating.objects.filter(restaurant_id=restaurant_id).select_related("menu_item", "order", "user")
-        return Response(FoodRatingSerializer(ratings, many=True).data)
+        restaurant_id = request.query_params.get("restaurant_id")
+        if not restaurant_id or not str(restaurant_id).isdigit():
+            return Response({"detail": "A valid restaurant_id is required."}, status=400)
+        restaurant_id = int(restaurant_id)
+        if not request.user.is_authenticated or not has_restaurant_role(
+            request.user,
+            restaurant_id,
+            OPERATIONAL_ROLES,
+        ):
+            return Response({"detail": "Restaurant staff access is required."}, status=403)
+        ratings = FoodRating.objects.filter(
+            restaurant_id=restaurant_id,
+        ).select_related("menu_item").order_by("-created_at")
+        aggregate = ratings.aggregate(average=Avg("rating"), count=Count("id"))
+        per_dish = (
+            ratings.values("menu_item_id", "menu_item__name")
+            .annotate(average=Avg("rating"), count=Count("id"))
+            .order_by("menu_item__name")
+        )
+        return Response({
+            "average_rating": aggregate["average"] or 0,
+            "rating_count": aggregate["count"],
+            "dishes": list(per_dish),
+            "recent": [
+                {
+                    "id": item.pk,
+                    "menu_item": item.menu_item_id,
+                    "menu_item_name": item.menu_item.name,
+                    "rating": item.rating,
+                    "comment": item.comment,
+                    "created_at": item.created_at,
+                }
+                for item in ratings[:100]
+            ],
+        })
 
-    order_id = request.data.get("order") or request.data.get("order_id")
-    menu_item_id = request.data.get("menu_item") or request.data.get("menu_item_id")
+    if _request_rate_limited(request, "food-rating-submit", limit=60):
+        return Response({"detail": "Too many rating attempts. Please try again later."}, status=429)
+    order_number = request.data.get("order_number")
+    order_item_id = request.data.get("order_item_id")
     rating_value = request.data.get("rating")
-    if order_id is None or menu_item_id is None or rating_value is None:
-        return Response({"detail": "order, menu_item and rating are required."}, status=status.HTTP_400_BAD_REQUEST)
+    comment = request.data.get("comment", "")
+    if not isinstance(order_number, str) or not order_number.strip():
+        return Response({"detail": "Enter your order number."}, status=400)
+    if not str(order_item_id or "").isdigit():
+        return Response({"detail": "A valid order item is required."}, status=400)
+    if isinstance(rating_value, bool):
+        return Response({"detail": "rating must be an integer between 1 and 5."}, status=400)
     try:
         rating_value = int(rating_value)
-    except (TypeError, ValueError):
-        return Response({"detail": "rating must be an integer between 1 and 5."}, status=status.HTTP_400_BAD_REQUEST)
+        normalized_order_number = str(uuid.UUID(order_number.strip()))
+    except (TypeError, ValueError, AttributeError):
+        return Response({"detail": "We couldn't find an eligible order with that number."}, status=404)
     if not 1 <= rating_value <= 5:
-        return Response({"detail": "rating must be between 1 and 5."}, status=status.HTTP_400_BAD_REQUEST)
+        return Response({"detail": "rating must be between 1 and 5."}, status=400)
+    if not isinstance(comment, str) or len(comment) > 1000:
+        return Response({"detail": "Feedback must be 1000 characters or fewer."}, status=400)
 
-    order = get_object_or_404(Order.objects.select_related("restaurant"), pk=order_id, restaurant_id=restaurant_id)
-    menu_item = get_object_or_404(MenuItem.objects.select_related("category__restaurant"), pk=menu_item_id)
-    if menu_item.category.restaurant_id != restaurant_id:
-        return Response({"detail": "This menu item does not belong to the selected restaurant."}, status=status.HTTP_400_BAD_REQUEST)
-    if not order.items.filter(menu_item_id=menu_item_id).exists():
-        return Response({"detail": "This item was not part of the selected order."}, status=status.HTTP_400_BAD_REQUEST)
+    order = Order.objects.select_related("restaurant").filter(
+        order_number=normalized_order_number,
+    ).first()
+    if order is None:
+        return Response({"detail": "We couldn't find an eligible order with that number."}, status=404)
+    if order.status != Order.OrderStatus.COMPLETED:
+        return Response(
+            {"detail": "This order is not complete yet. Please try again after pickup."},
+            status=409,
+        )
+    order_item = order.items.select_related("menu_item").filter(pk=int(order_item_id)).first()
+    if order_item is None:
+        return Response({"detail": "This dish is not eligible for this order."}, status=400)
 
-    rating, created = FoodRating.objects.get_or_create(
-        restaurant_id=restaurant_id,
-        order_id=order_id,
-        user=request.user,
-        defaults={
-            "menu_item": menu_item,
-            "rating": rating_value,
-            "comment": request.data.get("comment", ""),
-        },
-    )
-    if not created:
-        rating.menu_item = menu_item
-        rating.rating = rating_value
-        rating.comment = request.data.get("comment", rating.comment)
-        rating.save(update_fields=["menu_item", "rating", "comment"])
+    try:
+        with transaction.atomic():
+            rating = FoodRating.objects.create(
+                restaurant_id=order.restaurant_id,
+                order=order,
+                order_item=order_item,
+                menu_item=order_item.menu_item,
+                rating=rating_value,
+                comment=comment.strip(),
+            )
+    except IntegrityError:
+        return Response({"detail": "This order item has already been rated."}, status=409)
 
     return Response(
-        FoodRatingSerializer(rating).data,
-        status=status.HTTP_201_CREATED if created else status.HTTP_200_OK,
+        {
+            "id": rating.pk,
+            "menu_item_name": order_item.item_name,
+            "rating": rating.rating,
+            "comment": rating.comment,
+            "created_at": rating.created_at,
+        },
+        status=201,
     )
+
+
+@api_view(["POST"])
+@permission_classes([AllowAny])
+@csrf_protect
+def verify_rating_order_view(request):
+    if _request_rate_limited(request, "food-rating-verify", limit=30):
+        return Response({"detail": "Too many order lookups. Please try again later."}, status=429)
+    order_number = request.data.get("order_number")
+    if (
+        not isinstance(order_number, str)
+        or not order_number.strip()
+    ):
+        return Response({"detail": "Enter your order number."}, status=400)
+    try:
+        normalized_order_number = str(uuid.UUID(order_number.strip()))
+    except (TypeError, ValueError, AttributeError):
+        return Response({"detail": "We couldn't find an eligible order with that number."}, status=404)
+
+    order = Order.objects.select_related("restaurant").filter(
+        order_number=normalized_order_number,
+    ).first()
+    if order is None:
+        return Response({"detail": "We couldn't find an eligible order with that number."}, status=404)
+    if order.status != Order.OrderStatus.COMPLETED:
+        return Response(
+            {"detail": "This order is not complete yet. Please try again after pickup."},
+            status=409,
+        )
+    eligible_items = order.items.exclude(food_ratings__isnull=False)
+    already_rated = not eligible_items.exists() and order.items.exists()
+    return Response({
+        "order_number": str(order.order_number),
+        "display_order_number": order.display_order_number,
+        "items": [
+            {
+                "order_item_id": item.pk,
+                "name": item.item_name,
+            }
+            for item in eligible_items
+        ],
+        "already_rated": already_rated,
+    })
 
 
 @api_view(["GET", "PATCH"])

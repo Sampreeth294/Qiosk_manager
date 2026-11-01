@@ -6,7 +6,9 @@ import {
   useState,
   type FormEvent,
 } from "react";
+import { useNavigate } from "react-router-dom";
 import { apiRequest } from "../api/apiClient";
+import { rememberRatingOrder } from "../api/ratingOrderLookup";
 
 type Restaurant = {
   id: number;
@@ -42,9 +44,28 @@ type MenuItem = {
 };
 
 type CreatedOrder = {
+  id: number;
   order_number: string;
+  display_order_number: string | null;
+  restaurant: number;
+  restaurant_name: string;
+  order_type: "DINE_IN" | "TAKEAWAY";
+  table_number: string;
+  status: string;
+  payment_status: string;
   total_amount: string | number;
+  items: {
+    id: number;
+    menu_item: number;
+    item_name: string;
+    unit_price: string | number;
+    quantity: number;
+    subtotal: string | number;
+  }[];
+  created_at: string;
 };
+
+type PaymentMethod = "UPI" | "CARD";
 
 type CartItem = {
   item: MenuItem;
@@ -59,6 +80,7 @@ const formatPrice = (price: number) =>
   }).format(price);
 
 export default function CustomerOrdering() {
+  const navigate = useNavigate();
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [apiMenuItems, setApiMenuItems] = useState<ApiMenuItem[]>([]);
@@ -75,7 +97,9 @@ export default function CustomerOrdering() {
   const [submitting, setSubmitting] = useState(false);
   const [loadError, setLoadError] = useState("");
   const [checkoutError, setCheckoutError] = useState("");
-  const [orderNumber, setOrderNumber] = useState("");
+  const [createdOrder, setCreatedOrder] = useState<CreatedOrder | null>(null);
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>("UPI");
+  const [demoPaymentAcknowledged, setDemoPaymentAcknowledged] = useState(false);
 
   const loadCatalog = useCallback(async () => {
     try {
@@ -208,7 +232,6 @@ export default function CustomerOrdering() {
     });
 
     setCheckoutError("");
-    setOrderNumber("");
   }
 
   function changeQuantity(itemId: number, change: number) {
@@ -235,7 +258,6 @@ export default function CustomerOrdering() {
     );
 
     setCheckoutError("");
-    setOrderNumber("");
   }
 
   function changeRestaurant(value: string) {
@@ -243,7 +265,7 @@ export default function CustomerOrdering() {
     setSelectedCategory("All Items");
     setCart([]);
     setCheckoutError("");
-    setOrderNumber("");
+    setDemoPaymentAcknowledged(false);
   }
 
   async function placeOrder(event: FormEvent<HTMLFormElement>) {
@@ -287,9 +309,10 @@ export default function CustomerOrdering() {
         throw new Error("The server did not return an order number.");
       }
 
-      setOrderNumber(order.order_number);
+      rememberRatingOrder(order.display_order_number, order.order_number);
       setCart([]);
       setShowCheckout(false);
+      setCreatedOrder(order);
     } catch (error) {
       setCheckoutError(
         error instanceof Error
@@ -342,8 +365,7 @@ export default function CustomerOrdering() {
 
       <main className="mx-auto max-w-7xl px-4 py-6 sm:px-6 sm:py-8">
         <div className="mb-6 rounded-xl border border-indigo-100 bg-indigo-50 px-4 py-3 text-sm text-indigo-800">
-          Menu availability and prices are loaded from the restaurant. Payment
-          is not collected through this kiosk.
+          Menu availability and prices are loaded from the restaurant. UPI and card options in checkout are demonstrations only; no payment is processed.
         </div>
 
         {loadError && (
@@ -692,30 +714,91 @@ export default function CustomerOrdering() {
             </p>
           )}
 
-          {orderNumber && (
-            <div
-              role="status"
-              className="mt-5 rounded-xl bg-emerald-50 p-4 text-sm text-emerald-800"
-            >
-              <p className="font-semibold">
-                Order {orderNumber} was placed successfully.
-              </p>
-              <button
-                type="button"
-                onClick={() => {
-                  setOrderNumber("");
-                  document.getElementById("menu-items")?.scrollIntoView({
-                    behavior: "smooth",
-                  });
-                }}
-                className="mt-3 font-semibold underline"
-              >
-                Continue browsing
-              </button>
-            </div>
-          )}
         </section>
       </main>
+
+      {createdOrder && (
+        <div
+          className="fixed inset-0 z-[60] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4"
+          role="presentation"
+        >
+          <section
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="order-receipt-title"
+            className="my-auto w-full max-w-sm rounded-lg bg-white p-6 font-mono text-sm text-slate-900 shadow-2xl"
+          >
+            <header className="border-b border-dashed border-slate-400 pb-4 text-center">
+              <p className="text-xs uppercase tracking-widest">Qiosk Manager</p>
+              <h2 id="order-receipt-title" className="mt-2 text-lg font-bold">
+                Order Receipt
+              </h2>
+              <p className="mt-1 text-xs">{createdOrder.restaurant_name}</p>
+              <p className="mt-2 text-xs">
+                {new Date(createdOrder.created_at).toLocaleString()}
+              </p>
+            </header>
+
+            <div className="space-y-1 border-b border-dashed border-slate-400 py-4 text-xs">
+              <p>Order No: <span className="break-all font-bold">{createdOrder.display_order_number ?? createdOrder.order_number}</span></p>
+              <p>Type: {createdOrder.order_type === "DINE_IN" ? "Dine-in" : "Takeaway"}</p>
+              {createdOrder.order_type === "DINE_IN" && createdOrder.table_number && (
+                <p>Table: {createdOrder.table_number}</p>
+              )}
+              <p>Status: {createdOrder.status}</p>
+            </div>
+
+            <div className="border-b border-dashed border-slate-400 py-4">
+              <div className="mb-2 grid grid-cols-[1fr_auto_auto] gap-3 text-xs font-bold uppercase">
+                <span>Item</span>
+                <span>Qty</span>
+                <span>Amt</span>
+              </div>
+              <div className="space-y-2">
+                {createdOrder.items.map((item) => (
+                  <div key={item.id} className="grid grid-cols-[1fr_auto_auto] gap-3 text-xs">
+                    <span className="break-words">{item.item_name}</span>
+                    <span>{item.quantity}</span>
+                    <span>{formatPrice(Number(item.subtotal))}</span>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex justify-between border-t border-dotted border-slate-400 pt-3 font-bold">
+                <span>Total</span>
+                <span>{formatPrice(Number(createdOrder.total_amount))}</span>
+              </div>
+            </div>
+
+            <div className="py-4 text-center text-xs">
+              <p>Payment: {createdOrder.payment_status}</p>
+              <p className="mt-2">Demo payment only. Please pay at the restaurant.</p>
+              <p className="mt-2">Keep this order number to check your order. You can rate your food after it is completed.</p>
+            </div>
+
+            <button
+              type="button"
+              onClick={() =>
+                navigate("/food-ratings", {
+                  state: {
+                    order_number: createdOrder.order_number,
+                    display_order_number: createdOrder.display_order_number,
+                  },
+                })
+              }
+              className="mb-3 w-full rounded-lg border border-violet-600 px-4 py-3 font-sans text-sm font-bold text-violet-700 transition hover:bg-violet-50 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600"
+            >
+              Rate your food
+            </button>
+            <button
+              type="button"
+              onClick={() => navigate("/", { replace: true })}
+              className="w-full rounded-lg bg-violet-600 px-4 py-3 font-sans text-sm font-bold text-white transition hover:bg-violet-700 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-violet-600"
+            >
+              OK
+            </button>
+          </section>
+        </div>
+      )}
 
       {/* Checkout modal */}
       {showCheckout && (
@@ -772,7 +855,31 @@ export default function CustomerOrdering() {
               </div>
             ) : (
               <form onSubmit={placeOrder} className="mt-6 space-y-5">
-                <div>
+              <div className="space-y-3 rounded-xl border border-slate-200 p-4">
+                <h3 className="text-sm font-semibold text-slate-800">
+                  Your items
+                </h3>
+                {cart.map(({ item, quantity }) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center justify-between gap-4 text-sm"
+                  >
+                    <div className="min-w-0">
+                      <p className="truncate font-medium text-slate-800">
+                        {item.name}
+                      </p>
+                      <p className="text-xs text-slate-500">
+                        {quantity} × {formatPrice(item.price)}
+                      </p>
+                    </div>
+                    <span className="shrink-0 font-semibold text-slate-800">
+                      {formatPrice(item.price * quantity)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <div>
                   <p className="text-sm font-medium text-slate-700">
                     Order Type
                   </p>
@@ -832,6 +939,57 @@ export default function CustomerOrdering() {
                   </div>
                 </div>
 
+                <fieldset>
+                  <legend className="text-sm font-semibold text-slate-700">Choose a payment option</legend>
+                  <div className="mt-2 grid grid-cols-2 gap-3">
+                    {(["UPI", "CARD"] as const).map((method) => (
+                      <button
+                        key={method}
+                        type="button"
+                        aria-pressed={paymentMethod === method}
+                        onClick={() => setPaymentMethod(method)}
+                        disabled={submitting}
+                        className={`rounded-xl border p-3 text-sm font-semibold disabled:opacity-50 ${
+                          paymentMethod === method
+                            ? "border-indigo-600 bg-indigo-50 text-indigo-700"
+                            : "border-slate-200 text-slate-600"
+                        }`}
+                      >
+                        {method === "UPI" ? "UPI / QR" : "Credit / Debit Card"}
+                      </button>
+                    ))}
+                  </div>
+                  {paymentMethod === "UPI" ? (
+                    <div className="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-center">
+                      <div aria-hidden="true" className="mx-auto grid h-28 w-28 grid-cols-7 gap-1 rounded bg-white p-2">
+                        {Array.from({ length: 49 }, (_, index) => (
+                          <span
+                            key={index}
+                            className={`${((index * 17 + Math.floor(index / 7) * 11) % 5) < 2 ? "bg-slate-900" : "bg-white"}`}
+                          />
+                        ))}
+                      </div>
+                      <p className="mt-2 text-xs font-bold uppercase tracking-wide text-amber-900">Sample QR · Not payable</p>
+                      <p className="mt-1 text-xs text-amber-800">This decorative QR does not contain payment details and cannot transfer money.</p>
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-xl border border-indigo-100 bg-indigo-50 p-4">
+                      <p className="font-semibold text-indigo-900">Card checkout demo</p>
+                      <p className="mt-1 text-sm text-indigo-800">No card number, CVV, or banking details are collected. Payment is due at the restaurant.</p>
+                    </div>
+                  )}
+                  <label className="mt-3 flex items-start gap-2 text-xs leading-5 text-slate-600">
+                    <input
+                      type="checkbox"
+                      checked={demoPaymentAcknowledged}
+                      onChange={(event) => setDemoPaymentAcknowledged(event.target.checked)}
+                      disabled={submitting}
+                      className="mt-1 accent-indigo-600"
+                    />
+                    <span>I understand this is a demo payment screen. No payment is processed and the order will remain unpaid.</span>
+                  </label>
+                </fieldset>
+
                 {checkoutError && (
                   <p
                     role="alert"
@@ -843,14 +1001,14 @@ export default function CustomerOrdering() {
 
                 <button
                   type="submit"
-                  disabled={submitting || loading || !restaurantId || cart.length === 0}
+                  disabled={submitting || loading || !restaurantId || cart.length === 0 || !demoPaymentAcknowledged}
                   className="w-full rounded-xl bg-indigo-600 px-5 py-4 text-sm font-semibold text-white hover:bg-indigo-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                  {submitting ? "Submitting..." : "Place Order"}
+                  {submitting ? "Submitting..." : "Place Order · Pay at Restaurant"}
                 </button>
 
                 <p className="text-center text-xs text-slate-500">
-                  Payment is not collected through this kiosk.
+                  Selected option: {paymentMethod === "UPI" ? "UPI demo" : "Card demo"}. This application does not process payments.
                 </p>
               </form>
             )}

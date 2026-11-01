@@ -1,6 +1,7 @@
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { apiRequest } from "../api/apiClient";
+import { chooseRestaurantId, storeSelectedRestaurantId } from "../api/restaurantSelection";
 
 type ApiStatus =
   | "PENDING"
@@ -30,6 +31,7 @@ type ApiOrderItem = {
 type ApiOrder = {
   id: number;
   order_number: string;
+  display_order_number: string | null;
   restaurant?: number;
   restaurant_name?: string;
   order_type: "DINE_IN" | "TAKEAWAY" | string;
@@ -39,6 +41,7 @@ type ApiOrder = {
   created_at: string;
   updated_at?: string;
 };
+type Restaurant = { id: number; name: string; is_active: boolean };
 
 type KitchenOrder = {
   id: number;
@@ -87,7 +90,9 @@ function mapOrder(order: ApiOrder): KitchenOrder {
 
   return {
     id: order.id,
-    orderNumber: order.order_number,
+    orderNumber:
+      order.display_order_number ??
+      order.order_number.replaceAll("-", "").slice(0, 8).toUpperCase(),
     customer:
       order.order_type === "TAKEAWAY"
         ? "Takeaway"
@@ -107,6 +112,8 @@ function mapOrder(order: ApiOrder): KitchenOrder {
 }
 
 export default function KitchenDisplay() {
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [restaurantId, setRestaurantId] = useState<number | null>(null);
   const [orders, setOrders] = useState<KitchenOrder[]>([]);
   const [filter, setFilter] = useState<Filter>("All");
   const [search, setSearch] = useState("");
@@ -116,50 +123,82 @@ export default function KitchenDisplay() {
   const [updatingIds, setUpdatingIds] = useState<number[]>([]);
   const [wsConnected, setWsConnected] = useState(false);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
+  const requestId = useRef(0);
 
   const fetchOrders = useCallback(async (showLoading = false) => {
+    if (!restaurantId) return;
+    const activeRequestId = ++requestId.current;
     if (showLoading) setLoading(true);
 
     try {
-      const data = await apiRequest<ApiOrder[]>("/orders/");
+      const data = await apiRequest<ApiOrder[]>(
+        `/orders/?restaurant_id=${restaurantId}`,
+      );
 
       if (!Array.isArray(data)) {
         throw new Error("Unexpected orders response from the server.");
       }
 
+      if (activeRequestId !== requestId.current) return;
       setOrders(data.map(mapOrder));
       setError("");
     } catch (err) {
+      if (activeRequestId !== requestId.current) return;
       setError(
         err instanceof Error
           ? err.message
           : "Unable to connect to the backend.",
       );
     } finally {
-      if (showLoading) setLoading(false);
+      if (activeRequestId === requestId.current) setLoading(false);
     }
+  }, [restaurantId]);
+
+  useEffect(() => {
+    let active = true;
+    void apiRequest<Restaurant[]>("/restaurants/?include_inactive=true")
+      .then((data) => {
+        if (!active) return;
+        const activeRestaurants = data.filter((restaurant) => restaurant.is_active);
+        setRestaurants(activeRestaurants);
+        setRestaurantId(chooseRestaurantId(activeRestaurants));
+        if (activeRestaurants.length === 0) setLoading(false);
+      })
+      .catch((requestError: unknown) => {
+        if (!active) return;
+        setError(
+          requestError instanceof Error
+            ? requestError.message
+            : "Unable to load restaurant access for live orders.",
+        );
+        setLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
+    if (!restaurantId) return;
     let disposed = false;
-    let activeConnections = 0;
-    const sockets = new Set<WebSocket>();
-    const timers = new Set<number>();
+    let reconnectTimer: number | undefined;
+    let socket: WebSocket | undefined;
 
-    function connect(restaurantId: number) {
+    function connect() {
       if (disposed) return;
       const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
-      const socket = new WebSocket(
+      socket = new WebSocket(
         `${scheme}//${window.location.host}/ws/orders/?restaurant_id=${restaurantId}`,
       );
-      sockets.add(socket);
 
       socket.onopen = () => {
-        activeConnections += 1;
-        setWsConnected(activeConnections > 0);
+        if (disposed) return;
+        setWsConnected(true);
+        void fetchOrders();
       };
 
       socket.onmessage = (message: MessageEvent) => {
+        if (disposed) return;
         try {
           const event = JSON.parse(message.data) as {
             event: string;
@@ -171,6 +210,7 @@ export default function KitchenDisplay() {
               event.event === "order.updated") &&
             event.order
           ) {
+            if (event.order.restaurant !== restaurantId) return;
             const updatedOrder = mapOrder(event.order);
 
             setOrders((previousOrders) => {
@@ -193,58 +233,37 @@ export default function KitchenDisplay() {
       };
 
       socket.onclose = (event) => {
-        sockets.delete(socket);
-        if (event.wasClean && activeConnections > 0) {
-          activeConnections -= 1;
-        }
-        setWsConnected(activeConnections > 0);
+        if (disposed) return;
+        setWsConnected(false);
 
         if (
-          !disposed &&
           event.code !== 4401 &&
           event.code !== 4403 &&
           event.code !== 1008
         ) {
-          const timer = window.setTimeout(
-            () => connect(restaurantId),
-            3000,
-          );
-          timers.add(timer);
+          reconnectTimer = window.setTimeout(connect, 3000);
         }
       };
 
-      socket.onerror = () => socket.close();
+      socket.onerror = () => socket?.close();
     }
 
-    void apiRequest<{ id: number }[]>("/restaurants/?include_inactive=true")
-      .then((restaurants) => {
-        if (!disposed) restaurants.forEach(({ id }) => connect(id));
-      })
-      .catch((requestError: unknown) => {
-        if (!disposed) {
-          setError(
-            requestError instanceof Error
-              ? requestError.message
-              : "Unable to load restaurant access for live orders.",
-          );
-        }
-      });
+    const initialFetchTimer = window.setTimeout(() => {
+      void fetchOrders(true);
+    }, 0);
+    connect();
+    const pollTimer = window.setInterval(() => {
+      if (!disposed) void fetchOrders();
+    }, 30_000);
 
     return () => {
       disposed = true;
-      timers.forEach(window.clearTimeout);
-      sockets.forEach((socket) => socket.close());
-      sockets.clear();
+      if (reconnectTimer !== undefined) window.clearTimeout(reconnectTimer);
+      window.clearTimeout(initialFetchTimer);
+      window.clearInterval(pollTimer);
+      socket?.close();
     };
-  }, []);
-
-useEffect(() => {
-  const timeoutId = window.setTimeout(() => {
-    void fetchOrders(true);
-  }, 0);
-
-  return () => window.clearTimeout(timeoutId);
-}, [fetchOrders]);
+  }, [fetchOrders, restaurantId]);
 
 useEffect(() => {
   const timer = window.setInterval(() => {
@@ -328,15 +347,39 @@ useEffect(() => {
             {wsConnected ? "Real-time connection active" : "Connecting to real-time updates..."}
           </p>
         </div>
-
-        <button
-          type="button"
-          onClick={() => void fetchOrders(true)}
-          disabled={loading}
-          className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
-        >
-          {loading ? "Loading..." : "Refresh Orders"}
-        </button>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+          <label className="text-sm font-semibold text-slate-700">
+            Restaurant
+            <select
+              aria-label="Select restaurant"
+              value={restaurantId ?? ""}
+              disabled={restaurants.length === 0}
+              onChange={(event) => {
+                const selectedId = Number(event.target.value);
+                requestId.current += 1;
+                setOrders([]);
+                setLoading(true);
+                setError("");
+                setWsConnected(false);
+                storeSelectedRestaurantId(selectedId);
+                setRestaurantId(selectedId);
+              }}
+              className="mt-1 block min-w-52 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700"
+            >
+              {restaurants.map((restaurant) => (
+                <option key={restaurant.id} value={restaurant.id}>{restaurant.name}</option>
+              ))}
+            </select>
+          </label>
+          <button
+            type="button"
+            onClick={() => void fetchOrders(true)}
+            disabled={!restaurantId || loading}
+            className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-medium text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+          >
+            {loading ? "Loading..." : "Refresh Orders"}
+          </button>
+        </div>
       </div>
 
       {error && (
@@ -353,6 +396,11 @@ useEffect(() => {
             Retry
           </button>
         </div>
+      )}
+      {!loading && restaurants.length === 0 && !error && (
+        <p className="rounded-xl border border-slate-200 bg-white p-6 text-center text-slate-600">
+          No active restaurant access is available for this account.
+        </p>
       )}
 
       <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 xl:grid-cols-5">
@@ -462,14 +510,14 @@ useEffect(() => {
               >
                 <div className="flex items-start justify-between gap-3 border-b border-slate-100 p-5">
                   <div>
-                    <p className="break-all text-lg font-bold text-slate-900">
-                      Order #{order.id}
+                    <p className="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                      Order number
+                    </p>
+                    <p className="mt-1 break-all font-mono text-lg font-bold text-slate-900">
+                      {order.orderNumber}
                     </p>
                     <p className="mt-1 text-sm text-slate-500">
                       {order.customer}
-                    </p>
-                    <p className="mt-1 text-xs text-slate-400">
-                      Ref: {order.orderNumber}
                     </p>
                   </div>
 

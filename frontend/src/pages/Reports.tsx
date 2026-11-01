@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/apiClient";
+import { chooseRestaurantId, storeSelectedRestaurantId } from "../api/restaurantSelection";
 
 type Period = "Today" | "7 Days" | "30 Days";
-type Restaurant = { id: number; name: string };
+type Restaurant = { id: number; name: string; is_active: boolean };
 type AnalyticsReport = {
   restaurant_id: number;
   period: { start_date: string; end_date: string };
@@ -64,8 +65,9 @@ export default function Reports() {
     void apiRequest<Restaurant[]>("/restaurants/?include_inactive=true")
       .then((items) => {
         if (!active) return;
-        setRestaurants(items);
-        setRestaurantId(items[0]?.id ?? null);
+        const activeRestaurants = items.filter((restaurant) => restaurant.is_active);
+        setRestaurants(activeRestaurants);
+        setRestaurantId(chooseRestaurantId(activeRestaurants));
       })
       .catch((requestError: unknown) => {
         if (active) {
@@ -198,7 +200,9 @@ export default function Reports() {
             value={restaurantId ?? ""}
             onChange={(event) => {
               setError("");
-              setRestaurantId(Number(event.target.value));
+              const selectedId = Number(event.target.value);
+              storeSelectedRestaurantId(selectedId);
+              setRestaurantId(selectedId);
             }}
             disabled={loadingRestaurants || restaurants.length === 0}
             className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:border-indigo-500"

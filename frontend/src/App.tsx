@@ -1,5 +1,5 @@
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   Link,
   Navigate,
@@ -11,6 +11,7 @@ import {
 import { AuthProvider } from "./auth/AuthProvider";
 import { useAuth } from "./auth/useAuth";
 import { apiRequest } from "./api/apiClient";
+import { chooseRestaurantId, storeSelectedRestaurantId } from "./api/restaurantSelection";
 import MenuPage from "./pages/Menu";
 import Categories from "./pages/Categories";
 import Restaurants from "./pages/Restaurants";
@@ -31,6 +32,15 @@ import StaffManagement from "./pages/StaffManagement";
 import DiscountsOffers from "./pages/DiscountsOffers";
 import CustomerManagement from "./pages/CustomerManagement";
 import AdminLogin from "./pages/AdminLogin";
+import FoodRatingForm from "./pages/FoodRatingForm";
+import CustomerEntry from "./pages/CustomerEntry";
+import {
+  InitialSetupPage,
+  InvitationAcceptPage,
+  PasswordChangePage,
+  PasswordResetConfirmPage,
+  PasswordResetRequestPage,
+} from "./pages/AdminAccountPages";
 
 const navigation = [
   { name: "Dashboard", path: "/admin", symbol: "▦", group: "OVERVIEW" },
@@ -92,6 +102,7 @@ const navigation = [
     group: "MANAGEMENT",
   },
   { name: "Settings", path: "/admin/settings", symbol: "⚙", group: "SYSTEM" },
+  { name: "Change Password", path: "/admin/password", symbol: "🔒", group: "SYSTEM" },
   {
     name: "Purchase Orders",
     path: "/admin/purchase-orders",
@@ -133,10 +144,12 @@ const navigation = [
 function App() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/order" replace />} />
+      <Route path="/" element={<CustomerEntry />} />
       <Route path="/order" element={<CustomerOrdering />} />
       <Route path="/live-display" element={<LiveOrderDisplay />} />
       <Route path="/menu-voting" element={<MenuVoting />} />
+      <Route path="/food-ratings" element={<FoodRatingForm />} />
+      <Route path="/ratings" element={<FoodRatingForm />} />
       <Route
         path="/admin/*"
         element={
@@ -154,6 +167,10 @@ function AdminRoutes() {
   return (
     <Routes>
       <Route path="login" element={<AdminLogin />} />
+      <Route path="setup" element={<InitialSetupPage />} />
+      <Route path="invite/:token" element={<InvitationAcceptPage />} />
+      <Route path="password-reset" element={<PasswordResetRequestPage />} />
+      <Route path="password-reset/confirm" element={<PasswordResetConfirmPage />} />
       <Route
         path="*"
         element={
@@ -279,6 +296,8 @@ function AdminLayout() {
         return <Orders />;
       case "Settings":
         return <Settings />;
+      case "Change Password":
+        return <PasswordChangePage />;
       case "Reports":
         return <Reports />;
       case "Kitchen Display":
@@ -501,13 +520,17 @@ type DashboardStat = {
   page: string;
 };
 type DashboardReport = {
-  summary: { revenue: number; orders: number; average_order_value: number; pending_orders: number };
+  restaurant_id: number;
+  summary: { revenue: number; orders: number; average_order_value: number; pending_orders: number; completed_orders: number; cancelled_orders: number };
   status_counts: Record<string, number>;
+  current_status_counts: Record<string, number>;
   sales_series: { label: string; value: number }[];
   inventory_summary: { low_stock_items: number; total_items: number };
   menu_summary: { active_items: number };
   purchase_summary: { orders: number; pending: number; receipts: number };
-  voting_summary: { eligible_options: number; votes_today: number };
+  voting_summary: { eligible_options: number; target_date: string; votes_for_tomorrow: number };
+  rating_summary: { average: number; count: number };
+  expense_summary: { total: number; count: number; by_category: { category: string; total: number; count: number }[] };
 };
 type DashboardOrder = {
   id: number;
@@ -516,9 +539,10 @@ type DashboardOrder = {
   total_amount: string;
   created_at: string;
 };
+type DashboardRestaurant = { id: number; name: string; is_active: boolean };
 
 function Dashboard({ onNavigate }: DashboardProps) {
-  const [restaurants, setRestaurants] = useState<{ id: number; name: string }[]>([]);
+  const [restaurants, setRestaurants] = useState<DashboardRestaurant[]>([]);
   const [restaurantId, setRestaurantId] = useState<number | null>(null);
   const [stats, setStats] = useState<DashboardStat[]>([]);
   const [salesSeries, setSalesSeries] = useState<{ label: string; value: number }[]>([]);
@@ -526,41 +550,101 @@ function Dashboard({ onNavigate }: DashboardProps) {
   const [recentOrders, setRecentOrders] = useState<DashboardOrder[]>([]);
   const [dashboardLoading, setDashboardLoading] = useState(true);
   const [dashboardError, setDashboardError] = useState("");
+  const [dashboardConnection, setDashboardConnection] = useState<"connecting" | "live" | "polling">("connecting");
+  const dashboardRequestId = useRef(0);
 
   useEffect(() => {
-    void apiRequest<{ id: number; name: string }[]>("/restaurants/?include_inactive=true")
+    let active = true;
+    void apiRequest<DashboardRestaurant[]>("/restaurants/?include_inactive=true")
       .then((data) => {
-        setRestaurants(data);
-        setRestaurantId(data[0]?.id ?? null);
-        if (data.length === 0) setDashboardLoading(false);
+        if (!active) return;
+        const activeRestaurants = data.filter((restaurant) => restaurant.is_active);
+        setRestaurants(activeRestaurants);
+        const selected = chooseRestaurantId(activeRestaurants);
+        setRestaurantId(selected);
+        if (activeRestaurants.length === 0) setDashboardLoading(false);
       })
       .catch((requestError: unknown) => {
+        if (!active) return;
         setDashboardError(requestError instanceof Error ? requestError.message : "Unable to load restaurant access.");
         setDashboardLoading(false);
       });
+    return () => {
+      active = false;
+    };
   }, []);
 
-  useEffect(() => {
-    if (!restaurantId) {
-      return;
-    }
-
-    const now = new Date();
-    const today = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
-    void Promise.all([
-      apiRequest<DashboardReport>(`/reports/summary/?restaurant_id=${restaurantId}&start_date=${today}&end_date=${today}`),
-      apiRequest<DashboardOrder[]>(`/orders/?restaurant_id=${restaurantId}`),
-    ])
-      .then(([report, orders]) => {
-        setSalesSeries(report.sales_series);
-        setStatusCounts(report.status_counts);
+  const refreshDashboard = useCallback(async () => {
+    if (!restaurantId) return;
+    const requestId = ++dashboardRequestId.current;
+    setDashboardLoading(true);
+    setDashboardError("");
+    try {
+      const [report, orders] = await Promise.all([
+        apiRequest<DashboardReport>(`/reports/summary/?restaurant_id=${restaurantId}&range=today`),
+        apiRequest<DashboardOrder[]>(`/orders/?restaurant_id=${restaurantId}`),
+      ]);
+      if (requestId !== dashboardRequestId.current) return;
+      if (report.restaurant_id !== restaurantId) {
+        throw new Error("The dashboard response does not match the selected restaurant.");
+      }
+      setSalesSeries(report.sales_series);
+      setStatusCounts(report.status_counts);
         setStats([
           {
             label: "Today's Orders",
             value: report.summary.orders.toLocaleString(),
-            description: `${report.summary.pending_orders} pending`,
+            description: "Created during the restaurant's local business day",
             color: "bg-violet-50 text-violet-700",
             icon: "▤",
+            page: "Orders",
+          },
+          {
+            label: "Pending Now",
+            value: (report.current_status_counts.PENDING ?? 0).toLocaleString(),
+            description: "Current orders awaiting confirmation",
+            color: "bg-amber-50 text-amber-700",
+            icon: "◷",
+            page: "Orders",
+          },
+          {
+            label: "Confirmed Now",
+            value: (report.current_status_counts.CONFIRMED ?? 0).toLocaleString(),
+            description: "Current confirmed orders",
+            color: "bg-violet-50 text-violet-700",
+            icon: "✓",
+            page: "Orders",
+          },
+          {
+            label: "Preparing Now",
+            value: (report.current_status_counts.PREPARING ?? 0).toLocaleString(),
+            description: "Current kitchen orders",
+            color: "bg-amber-50 text-amber-700",
+            icon: "♨",
+            page: "Kitchen Display",
+          },
+          {
+            label: "Ready Now",
+            value: (report.current_status_counts.READY ?? 0).toLocaleString(),
+            description: "Current orders ready for pickup",
+            color: "bg-emerald-50 text-emerald-700",
+            icon: "✓",
+            page: "Orders",
+          },
+          {
+            label: "Completed Today",
+            value: (report.status_counts.COMPLETED ?? 0).toLocaleString(),
+            description: "Completed orders created today; completion time is not stored",
+            color: "bg-emerald-50 text-emerald-700",
+            icon: "✓",
+            page: "Orders",
+          },
+          {
+            label: "Cancelled Today",
+            value: report.summary.cancelled_orders.toLocaleString(),
+            description: "Orders created today and currently cancelled",
+            color: "bg-rose-50 text-rose-700",
+            icon: "×",
             page: "Orders",
           },
           {
@@ -570,6 +654,14 @@ function Dashboard({ onNavigate }: DashboardProps) {
             color: "bg-emerald-50 text-emerald-700",
             icon: "₹",
             page: "Reports",
+          },
+          {
+            label: "Today's Expenses",
+            value: `₹${report.expense_summary.total.toLocaleString("en-IN", { maximumFractionDigits: 2 })}`,
+            description: `${report.expense_summary.count} recorded transactions`,
+            color: "bg-rose-50 text-rose-700",
+            icon: "↘",
+            page: "Expenses",
           },
           {
             label: "Low Stock Items",
@@ -596,46 +688,99 @@ function Dashboard({ onNavigate }: DashboardProps) {
             page: "Menu",
           },
           {
-            label: "Today's Menu Votes",
-            value: report.voting_summary.votes_today.toLocaleString(),
-            description: `${report.voting_summary.eligible_options} eligible choices`,
-            color: "bg-orange-50 text-orange-700",
+            label: "Votes for Tomorrow",
+            value: report.voting_summary.votes_for_tomorrow.toLocaleString(),
+            description: `${report.voting_summary.eligible_options} eligible choices · ${report.voting_summary.target_date}`,
+            color: "bg-violet-50 text-violet-700",
             icon: "🗳️",
             page: "Menu Voting",
           },
+          {
+            label: "Food Rating Average",
+            value: report.rating_summary.average.toFixed(1),
+            description: `${report.rating_summary.count} completed-order ratings`,
+            color: "bg-amber-50 text-amber-700",
+            icon: "★",
+            page: "Ratings",
+          },
         ]);
         setRecentOrders(orders.slice(0, 5));
-      })
-      .catch((requestError: unknown) => {
-        setDashboardError(requestError instanceof Error ? requestError.message : "Unable to load dashboard data.");
-        setStats([]);
-        setSalesSeries([]);
-        setStatusCounts({});
-        setRecentOrders([]);
-      })
-      .finally(() => setDashboardLoading(false));
-  }, [restaurantId, restaurants.length]);
+    } catch (requestError) {
+      if (requestId !== dashboardRequestId.current) return;
+      setDashboardError(requestError instanceof Error ? requestError.message : "Unable to load dashboard data.");
+      setStats([]);
+      setSalesSeries([]);
+      setStatusCounts({});
+      setRecentOrders([]);
+    } finally {
+      if (requestId === dashboardRequestId.current) setDashboardLoading(false);
+    }
+  }, [restaurantId]);
+
+  useEffect(() => {
+    if (!restaurantId) return;
+    let disposed = false;
+    let socket: WebSocket | null = null;
+    let reconnectTimer = 0;
+    let reconnectDelay = 3000;
+    const pollTimer = window.setInterval(() => {
+      if (!disposed) void refreshDashboard();
+    }, 30_000);
+
+    const connect = () => {
+      if (disposed) return;
+      const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
+      socket = new WebSocket(
+        `${scheme}//${window.location.host}/ws/orders/?restaurant_id=${restaurantId}`,
+      );
+      socket.onopen = () => {
+        if (disposed) return;
+        reconnectDelay = 3000;
+        setDashboardConnection("live");
+        void refreshDashboard();
+      };
+      socket.onmessage = () => {
+        if (!disposed) void refreshDashboard();
+      };
+      socket.onclose = (event) => {
+        if (disposed) return;
+        setDashboardConnection("polling");
+        if (event.code === 4401 || event.code === 4403 || event.code === 1008) return;
+        reconnectTimer = window.setTimeout(connect, reconnectDelay);
+        reconnectDelay = Math.min(reconnectDelay * 2, 30_000);
+      };
+      socket.onerror = () => socket?.close();
+    };
+
+    const initialRefreshTimer = window.setTimeout(() => {
+      void refreshDashboard();
+    }, 0);
+    connect();
+    return () => {
+      disposed = true;
+      window.clearTimeout(initialRefreshTimer);
+      window.clearInterval(pollTimer);
+      window.clearTimeout(reconnectTimer);
+      socket?.close();
+    };
+  }, [restaurantId, refreshDashboard]);
 
   return (
     <div className="space-y-8">
       {/* Welcome section */}
-      <section className="overflow-hidden rounded-2xl bg-gradient-to-r from-violet-700 to-indigo-700 p-7 text-white shadow-sm sm:p-9">
-        <div className="max-w-2xl">
-          <p className="text-sm font-medium text-violet-200">
-            RESTAURANT OPERATIONS
-          </p>
-
-          <h3 className="mt-3 text-2xl font-bold sm:text-3xl">
-            Welcome to your workspace
-          </h3>
-
-          <p className="mt-3 max-w-xl text-sm leading-6 text-violet-100">
-            Monitor live restaurant activity and open your operational modules from one workspace.
-          </p>
-
+      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
+        <p className="text-sm font-bold uppercase tracking-wide text-violet-700">Restaurant operations</p>
+        <div className="mt-2 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+          <div>
+            <h3 className="text-2xl font-bold text-slate-900 sm:text-3xl">Welcome to your workspace</h3>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
+              Monitor restaurant activity and open operational modules from one workspace.
+            </p>
+          </div>
           <button
+            type="button"
             onClick={() => onNavigate("Restaurants")}
-            className="mt-6 rounded-xl bg-white px-5 py-3 text-sm font-semibold text-violet-700 transition hover:bg-violet-50"
+            className="shrink-0 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-700"
           >
             Manage restaurants →
           </button>
@@ -649,26 +794,41 @@ function Dashboard({ onNavigate }: DashboardProps) {
               Today's business overview
             </h3>
             <p className="mt-1 text-sm text-slate-500">
-              Sales, stock, purchase orders, and voting for the selected restaurant.
+              Live order status and business metrics for the selected active restaurant.
+            </p>
+            <p className="mt-1 text-xs font-medium text-slate-500" aria-live="polite">
+              {dashboardConnection === "live" ? "Live order updates connected" : dashboardConnection === "polling" ? "Live updates unavailable · refreshing every 30 seconds" : "Connecting to live order updates"}
             </p>
           </div>
-          <label className="text-sm font-semibold text-slate-700">
-            Restaurant
-            <select
-              className="ml-2 rounded-lg border border-slate-300 bg-white px-3 py-2"
-              value={restaurantId ?? ""}
-              onChange={(event) => {
-                setDashboardLoading(true);
-                setDashboardError("");
-                setRestaurantId(Number(event.target.value));
-              }}
-              disabled={!restaurants.length}
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
+            <label className="text-sm font-semibold text-slate-700">
+              Restaurant
+              <select
+                className="mt-1 block min-w-56 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:border-violet-500"
+                value={restaurantId ?? ""}
+                onChange={(event) => {
+                  setDashboardLoading(true);
+                  setDashboardError("");
+                  const selectedId = Number(event.target.value);
+                  storeSelectedRestaurantId(selectedId);
+                  setRestaurantId(selectedId);
+                }}
+                disabled={!restaurants.length}
+              >
+                {restaurants.map((restaurant) => (
+                  <option key={restaurant.id} value={restaurant.id}>{restaurant.name}</option>
+                ))}
+              </select>
+            </label>
+            <button
+              type="button"
+              onClick={() => void refreshDashboard()}
+              disabled={!restaurantId || dashboardLoading}
+              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
             >
-              {restaurants.map((restaurant) => (
-                <option key={restaurant.id} value={restaurant.id}>{restaurant.name}</option>
-              ))}
-            </select>
-          </label>
+              {dashboardLoading ? "Refreshing…" : "Refresh"}
+            </button>
+          </div>
         </div>
 
         {dashboardError && (
@@ -680,18 +840,24 @@ function Dashboard({ onNavigate }: DashboardProps) {
           <p className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-600">
             Loading today's dashboard…
           </p>
-        ) : stats.length === 0 ? (
+        ) : restaurants.length === 0 ? (
           <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">
-            No restaurant access or dashboard data is available for this account.
+            {dashboardError
+              ? "Restaurant access could not be loaded. Retry after checking your connection."
+              : "No active restaurant access is available. Ask an owner to activate a restaurant membership."}
           </p>
+        ) : dashboardError ? (
+          <div className="rounded-2xl border border-dashed border-rose-200 bg-white p-8 text-center text-slate-600">
+            Dashboard data is unavailable. Use Refresh to try again.
+          </div>
         ) : (
-        <div className="grid grid-cols-1 gap-5 sm:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {stats.map((stat) => (
             <button
               key={stat.label}
               type="button"
               onClick={() => onNavigate(stat.page)}
-              className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
+              className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md"
             >
               <div className="flex items-start justify-between gap-3">
                 <p className="text-sm font-medium text-slate-500">
@@ -709,7 +875,7 @@ function Dashboard({ onNavigate }: DashboardProps) {
                 {stat.value}
               </p>
 
-              <p className="mt-2 text-xs text-slate-400">
+              <p className="mt-2 text-xs text-slate-500">
                 {stat.description}
               </p>
             </button>
@@ -718,7 +884,7 @@ function Dashboard({ onNavigate }: DashboardProps) {
         )}
         {!dashboardLoading && stats.length > 0 && (
         <div className="mt-5 grid gap-5 xl:grid-cols-2">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h4 className="font-bold text-slate-900">Sales · last 7 days</h4>
             <div
               role="img"
@@ -741,12 +907,12 @@ function Dashboard({ onNavigate }: DashboardProps) {
               })}
             </div>
           </section>
-          <section className="rounded-2xl border border-slate-200 bg-white p-5">
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h4 className="font-bold text-slate-900">Orders by status · today</h4>
             <div className="mt-4 flex flex-wrap gap-2">
               {Object.entries(statusCounts).map(([orderStatus, count]) => (
-                <span key={orderStatus} className="rounded-full bg-slate-100 px-3 py-2 text-xs font-semibold text-slate-700">
-                  {orderStatus}: {count}
+                <span key={orderStatus} className="rounded-full bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700">
+                  {orderStatus.replaceAll("_", " ")}: {count}
                 </span>
               ))}
             </div>

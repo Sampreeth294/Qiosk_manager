@@ -1,5 +1,7 @@
 
 import uuid
+from datetime import time
+from decimal import Decimal
 
 from django.conf import settings
 from django.db import models
@@ -24,6 +26,7 @@ class Restaurant(models.Model):
 
 class RestaurantMembership(models.Model):
     class Role(models.TextChoices):
+        OWNER = "OWNER", "Owner"
         STAFF = "STAFF", "Staff"
         MANAGER = "MANAGER", "Manager"
 
@@ -53,7 +56,7 @@ class RestaurantMembership(models.Model):
                 name="unique_user_restaurant_membership",
             ),
             models.CheckConstraint(
-                condition=models.Q(role__in=["STAFF", "MANAGER"]),
+                condition=models.Q(role__in=["OWNER", "STAFF", "MANAGER"]),
                 name="valid_restaurant_membership_role",
             ),
         ]
@@ -61,6 +64,41 @@ class RestaurantMembership(models.Model):
 
     def __str__(self):
         return f"{self.user} - {self.restaurant} ({self.role})"
+
+
+class RestaurantSetupState(models.Model):
+    id = models.PositiveSmallIntegerField(primary_key=True, default=1, editable=False)
+    completed_at = models.DateTimeField(blank=True, null=True)
+
+    def __str__(self):
+        return "Initial restaurant setup"
+
+
+class RestaurantInvitation(models.Model):
+    user = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.CASCADE,
+        related_name="restaurant_invitations",
+    )
+    membership = models.ForeignKey(
+        RestaurantMembership,
+        on_delete=models.CASCADE,
+        related_name="invitations",
+    )
+    token_hash = models.CharField(max_length=64, unique=True)
+    expires_at = models.DateTimeField()
+    accepted_at = models.DateTimeField(blank=True, null=True)
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        related_name="sent_restaurant_invitations",
+        blank=True,
+        null=True,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
 
 
 class RestaurantSetting(models.Model):
@@ -115,6 +153,60 @@ class RestaurantNotification(models.Model):
 
     def __str__(self):
         return f"{self.title} ({self.restaurant})"
+
+
+class Expense(models.Model):
+    class Category(models.TextChoices):
+        INGREDIENTS = "Ingredients", "Ingredients"
+        UTILITIES = "Utilities", "Utilities"
+        RENT = "Rent", "Rent"
+        SALARIES = "Salaries", "Salaries"
+        MAINTENANCE = "Maintenance", "Maintenance"
+        PACKAGING = "Packaging", "Packaging"
+        OTHER = "Other", "Other"
+
+    class PaymentMethod(models.TextChoices):
+        CASH = "Cash", "Cash"
+        UPI = "UPI", "UPI"
+        CARD = "Card", "Card"
+        BANK_TRANSFER = "Bank Transfer", "Bank Transfer"
+
+    restaurant = models.ForeignKey(
+        Restaurant,
+        on_delete=models.CASCADE,
+        related_name="expenses",
+    )
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.SET_NULL,
+        blank=True,
+        null=True,
+        related_name="recorded_restaurant_expenses",
+    )
+    title = models.CharField(max_length=160)
+    category = models.CharField(max_length=24, choices=Category.choices)
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        validators=[MinValueValidator(Decimal("0.01"))],
+    )
+    date = models.DateField()
+    payment_method = models.CharField(max_length=24, choices=PaymentMethod.choices)
+    paid_to = models.CharField(max_length=160)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-date", "-created_at"]
+        indexes = [models.Index(fields=["restaurant", "date"])]
+        constraints = [
+            models.CheckConstraint(
+                condition=Q(amount__gt=0),
+                name="expense_amount_positive",
+            ),
+        ]
+
+    def __str__(self):
+        return f"{self.title} - {self.amount} ({self.restaurant})"
 
 
 class Supplier(models.Model):
@@ -508,6 +600,40 @@ class MenuItem(models.Model):
         return self.name
 
 
+class MenuVotingPeriod(models.Model):
+    restaurant = models.ForeignKey(
+        Restaurant,
+        on_delete=models.CASCADE,
+        related_name="menu_voting_periods",
+    )
+    target_date = models.DateField()
+    starts_at = models.TimeField(default=time(0, 0))
+    ends_at = models.TimeField(default=time(23, 59))
+    is_open = models.BooleanField(default=True)
+    publish_results = models.BooleanField(default=True)
+    use_all_active_items = models.BooleanField(default=True)
+    eligible_items = models.ManyToManyField(
+        MenuItem,
+        blank=True,
+        related_name="voting_periods",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["restaurant", "target_date"],
+                name="unique_menu_voting_period_per_restaurant_date",
+            ),
+            models.CheckConstraint(
+                condition=Q(ends_at__gt=F("starts_at")),
+                name="menu_voting_period_positive_duration",
+            ),
+        ]
+        ordering = ["-target_date"]
+
+
 # -------------------------
 # ORDER
 # -------------------------
@@ -537,6 +663,12 @@ class Order(models.Model):
         unique=True,
         editable=False,
     )
+    display_order_number = models.CharField(
+        max_length=4,
+        blank=True,
+        null=True,
+    )
+    display_order_date = models.DateField(blank=True, null=True)
 
     # Restaurant receiving the order
     restaurant = models.ForeignKey(
@@ -575,12 +707,19 @@ class Order(models.Model):
         decimal_places=2,
         default=0.00,
     )
+    receipt_token_hash = models.CharField(max_length=64, blank=True, default="")
 
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
         ordering = ["-created_at"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["restaurant", "display_order_date", "display_order_number"],
+                name="unique_daily_display_order_number",
+            ),
+        ]
 
     def __str__(self):
         return f"Order {self.order_number}"
@@ -695,6 +834,13 @@ class FoodRating(models.Model):
         on_delete=models.CASCADE,
         related_name="food_ratings",
     )
+    order_item = models.ForeignKey(
+        OrderItem,
+        on_delete=models.SET_NULL,
+        related_name="food_ratings",
+        blank=True,
+        null=True,
+    )
     menu_item = models.ForeignKey(
         MenuItem,
         on_delete=models.CASCADE,
@@ -704,6 +850,8 @@ class FoodRating(models.Model):
         settings.AUTH_USER_MODEL,
         on_delete=models.CASCADE,
         related_name="food_ratings",
+        blank=True,
+        null=True,
     )
     rating = models.PositiveSmallIntegerField(
         validators=[MinValueValidator(1), MaxValueValidator(5)],
@@ -715,7 +863,13 @@ class FoodRating(models.Model):
         constraints = [
             models.UniqueConstraint(
                 fields=["order", "user"],
+                condition=Q(user__isnull=False),
                 name="unique_food_rating_per_user_order",
+            ),
+            models.UniqueConstraint(
+                fields=["order_item"],
+                condition=Q(order_item__isnull=False),
+                name="unique_guest_rating_per_order_item",
             ),
             models.CheckConstraint(
                 condition=Q(rating__gte=1) & Q(rating__lte=5),

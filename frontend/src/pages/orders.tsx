@@ -1,12 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
 import { apiRequest } from "../api/apiClient";
+import { chooseRestaurantId, storeSelectedRestaurantId } from "../api/restaurantSelection";
 
 type OrderStatus = "PENDING" | "CONFIRMED" | "PREPARING" | "READY" | "COMPLETED" | "CANCELLED";
 type StatusFilter = "All" | OrderStatus;
-type Restaurant = { id: number; name: string };
+type Restaurant = { id: number; name: string; is_active: boolean };
 type ApiOrder = {
   id: number;
   order_number: string;
+  display_order_number: string | null;
   restaurant: number;
   order_type: "DINE_IN" | "TAKEAWAY";
   table_number: string;
@@ -65,7 +67,7 @@ const allowedTransitions: Record<OrderStatus, OrderStatus[]> = {
 function mapOrder(order: ApiOrder): Order {
   return {
     id: order.id,
-    displayId: order.order_number.slice(0, 8).toUpperCase(),
+    displayId: order.display_order_number ?? order.order_number.slice(0, 8).toUpperCase(),
     items: order.items.map((item) => `${item.item_name} × ${item.quantity}`),
     total: Number(order.total_amount),
     status: order.status,
@@ -93,8 +95,9 @@ function Orders() {
     void apiRequest<Restaurant[]>("/restaurants/?include_inactive=true")
       .then((data) => {
         if (!active) return;
-        setRestaurants(data);
-        setRestaurantId(data[0]?.id ?? null);
+        const activeRestaurants = data.filter((restaurant) => restaurant.is_active);
+        setRestaurants(activeRestaurants);
+        setRestaurantId(chooseRestaurantId(activeRestaurants));
       })
       .catch((requestError: unknown) => {
         if (active) setError(requestError instanceof Error ? requestError.message : "Unable to load restaurants.");
@@ -180,7 +183,9 @@ function Orders() {
             disabled={loadingRestaurants || restaurants.length === 0}
             onChange={(event) => {
               setError("");
-              setRestaurantId(Number(event.target.value));
+              const selectedId = Number(event.target.value);
+              storeSelectedRestaurantId(selectedId);
+              setRestaurantId(selectedId);
             }}
             className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:border-violet-500"
           >

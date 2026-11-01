@@ -187,7 +187,7 @@ export default function LiveOrderDisplay() {
     <main className="min-h-screen bg-slate-950 p-4 text-white sm:p-8">
       <header className="flex flex-col justify-between gap-5 border-b border-slate-800 pb-6 sm:flex-row sm:items-end">
         <div>
-          <p className="text-sm font-bold uppercase tracking-[0.2em] text-emerald-300">
+          <p className="text-sm font-bold uppercase tracking-[0.2em] text-violet-300">
             Order status
           </p>
           <h1 className="mt-2 text-3xl font-black sm:text-5xl">
@@ -196,7 +196,7 @@ export default function LiveOrderDisplay() {
           <p className="mt-2 text-slate-300">
             Follow your public order number to see when it is ready.
           </p>
-          <p className="mt-2 text-xs text-slate-400" aria-live="polite">
+          <p className="mt-2 text-sm font-medium text-slate-300" aria-live="polite">
             {connectionLabel[connection]}
           </p>
         </div>
@@ -206,7 +206,7 @@ export default function LiveOrderDisplay() {
           </label>
           <select
             id="display-restaurant"
-            className="min-w-60 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-white"
+            className="min-w-60 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-500/30"
             value={restaurantId ?? ""}
             onChange={(event) => {
               setLoading(true);
@@ -245,7 +245,7 @@ export default function LiveOrderDisplay() {
           {publicStatuses.map((status) => {
             const statusOrders = byStatus(status);
             return (
-              <section key={status} className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900">
+              <section key={status} className="overflow-hidden rounded-2xl border border-slate-800 bg-slate-900 shadow-sm">
                 <header className="flex items-center justify-between border-b border-slate-800 px-5 py-4">
                   <h2 className="text-xl font-extrabold sm:text-2xl">{statusLabels[status]}</h2>
                   <span className="rounded-lg bg-white px-3 py-1 text-lg font-black text-slate-900">

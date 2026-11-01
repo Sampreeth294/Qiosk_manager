@@ -6,9 +6,19 @@ from .auth_views import (
     login_view,
     logout_view,
 )
+from .account_views import (
+    initial_setup_view,
+    invitation_accept_view,
+    password_change_view,
+    password_reset_confirm_view,
+    password_reset_request_view,
+    restaurant_user_detail_view,
+    restaurant_users_view,
+)
 from .views import (
     analytics_summary,
     food_rating_view,
+    verify_rating_order_view,
     health_check,
     menu_vote_view,
     public_live_display,
@@ -42,12 +52,20 @@ from .inventory_views import (
     supplier_detail,
     supplier_list,
 )
+from .expense_views import expense_detail, expense_list
 
 
 urlpatterns = [
+    path("auth/setup/", initial_setup_view, name="initial_setup"),
     path("auth/login/", login_view, name="auth_login"),
     path("auth/logout/", logout_view, name="auth_logout"),
     path("auth/me/", current_user_view, name="auth_me"),
+    path("auth/password/change/", password_change_view, name="password_change"),
+    path("auth/password/reset/", password_reset_request_view, name="password_reset_request"),
+    path("auth/password/reset/confirm/", password_reset_confirm_view, name="password_reset_confirm"),
+    path("auth/invitations/accept/", invitation_accept_view, name="invitation_accept"),
+    path("users/", restaurant_users_view, name="restaurant_users"),
+    path("users/<int:membership_id>/", restaurant_user_detail_view, name="restaurant_user_detail"),
     path(
         "health-check/",
         health_check,
@@ -83,6 +101,8 @@ urlpatterns = [
         analytics_summary,
         name="analytics_summary",
     ),
+    path("expenses/", expense_list, name="expense_list"),
+    path("expenses/<int:pk>/", expense_detail, name="expense_detail"),
     path(
         "settings/",
         restaurant_settings_view,
@@ -153,6 +173,11 @@ path(
     "food-ratings/",
     food_rating_view,
     name="food_rating_view",
+),
+path(
+    "food-ratings/verify/",
+    verify_rating_order_view,
+    name="verify_rating_order",
 ),
 path(
     "inventory/ingredients/",

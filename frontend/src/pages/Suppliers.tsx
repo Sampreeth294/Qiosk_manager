@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
 import { apiRequest } from "../api/apiClient";
+import { chooseRestaurantId, storeSelectedRestaurantId } from "../api/restaurantSelection";
 
 type Supplier = {
   id: number;
@@ -14,7 +15,7 @@ type Supplier = {
   is_active: boolean;
 };
 
-type Restaurant = { id: number; name: string };
+type Restaurant = { id: number; name: string; is_active: boolean };
 
 const emptyForm = {
   name: "",
@@ -44,8 +45,10 @@ export default function Suppliers() {
   useEffect(() => {
     apiRequest<Restaurant[]>("/restaurants/?include_inactive=true")
       .then((data) => {
-        setRestaurants(data);
-        if (data.length > 0) setRestaurantId(String(data[0].id));
+        const activeRestaurants = data.filter((restaurant) => restaurant.is_active);
+        setRestaurants(activeRestaurants);
+        const selected = chooseRestaurantId(activeRestaurants);
+        if (selected) setRestaurantId(String(selected));
         else setLoading(false);
       })
       .catch((error: unknown) => {
@@ -223,7 +226,11 @@ export default function Suppliers() {
           <select
             aria-label="Select restaurant"
             value={restaurantId}
-            onChange={(event) => setRestaurantId(event.target.value)}
+            onChange={(event) => {
+              const selectedId = Number(event.target.value);
+              storeSelectedRestaurantId(selectedId);
+              setRestaurantId(String(selectedId));
+            }}
             className={inputClass}
             disabled={restaurants.length === 0}
           >

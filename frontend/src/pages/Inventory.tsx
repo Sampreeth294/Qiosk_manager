@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import { apiRequest } from "../api/apiClient";
+import { chooseRestaurantId, storeSelectedRestaurantId } from "../api/restaurantSelection";
 
 type InventoryItem = {
   id: number;
@@ -18,7 +19,7 @@ type InventoryItem = {
   is_active: boolean;
 };
 
-type Restaurant = { id: number; name: string };
+type Restaurant = { id: number; name: string; is_active: boolean };
 type Supplier = { id: number; name: string };
 type StockMovement = {
   id: number;
@@ -74,8 +75,10 @@ export default function Inventory() {
   useEffect(() => {
     apiRequest<Restaurant[]>("/restaurants/?include_inactive=true")
       .then((data) => {
-        setRestaurants(data);
-        if (data.length > 0) setRestaurantId(String(data[0].id));
+        const activeRestaurants = data.filter((restaurant) => restaurant.is_active);
+        setRestaurants(activeRestaurants);
+        const selected = chooseRestaurantId(activeRestaurants);
+        if (selected) setRestaurantId(String(selected));
         else setLoading(false);
       })
       .catch((error: unknown) => {
@@ -283,7 +286,11 @@ export default function Inventory() {
           <select
             aria-label="Select restaurant"
             value={restaurantId}
-            onChange={(event) => setRestaurantId(event.target.value)}
+            onChange={(event) => {
+              const selectedId = Number(event.target.value);
+              storeSelectedRestaurantId(selectedId);
+              setRestaurantId(String(selectedId));
+            }}
             className={inputClass}
             disabled={restaurants.length === 0}
           >

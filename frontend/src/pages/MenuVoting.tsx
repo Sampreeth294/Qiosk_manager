@@ -7,12 +7,14 @@ type VoteOption = {
   name: string;
   description: string;
   category: string;
+  image_url?: string | null;
   price?: string | number;
   votes?: number;
+  eligible?: boolean;
 };
 type PublicPoll = {
   restaurant: Restaurant;
-  period: { vote_date: string; starts_at: string; ends_at: string; is_open: boolean };
+  period: { vote_date: string; starts_at: string; ends_at: string; start_time: string; end_time: string; is_open: boolean };
   results_visible: boolean;
   total_votes: number | null;
   my_vote: number | null;
@@ -22,6 +24,10 @@ type AdminPoll = {
   restaurant: Restaurant;
   vote_date: string;
   is_open: boolean;
+  starts_at: string;
+  ends_at: string;
+  publish_results: boolean;
+  use_all_active_items: boolean;
   total_votes: number;
   options: VoteOption[];
 };
@@ -36,9 +42,15 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
   });
   const [poll, setPoll] = useState<PublicPoll | AdminPoll | null>(null);
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
+  const [eligibleItemIds, setEligibleItemIds] = useState<number[]>([]);
+  const [startsAt, setStartsAt] = useState("00:00");
+  const [endsAt, setEndsAt] = useState("23:59");
+  const [publishResults, setPublishResults] = useState(false);
+  const [useAllActiveItems, setUseAllActiveItems] = useState(true);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(true);
   const [submitting, setSubmitting] = useState(false);
+  const [savingConfiguration, setSavingConfiguration] = useState(false);
   const [notice, setNotice] = useState("");
   const [error, setError] = useState("");
 
@@ -72,7 +84,14 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
         setPoll(result);
         if ("my_vote" in result && result.my_vote) {
           setSelectedItem(result.my_vote);
-          setNotice("Your vote has already been recorded for today's poll.");
+          setNotice("Your vote has already been recorded for tomorrow's menu.");
+        }
+        if ("vote_date" in result) {
+          setEligibleItemIds(result.options.filter((option) => option.eligible).map((option) => option.id));
+          setStartsAt(result.starts_at);
+          setEndsAt(result.ends_at);
+          setPublishResults(result.publish_results);
+          setUseAllActiveItems(result.use_all_active_items);
         }
       })
       .catch((requestError: unknown) => {
@@ -100,8 +119,8 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
     ? "total_votes" in poll ? poll.total_votes : 0
     : 0;
   const periodDescription = poll && "period" in poll
-    ? `${new Date(poll.period.starts_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} – ${new Date(poll.period.ends_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })} (restaurant timezone)`
-    : "Current restaurant-local calendar day";
+    ? `${poll.period.start_time}–${poll.period.end_time} (restaurant local time)`
+    : "Restaurant local time";
   const selectedOption = options.find((option) => option.id === selectedItem);
 
   async function submitVote() {
@@ -126,7 +145,7 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Unable to submit your vote.";
       if (message.toLowerCase().includes("already voted")) {
-        setNotice("You have already voted in today's poll.");
+        setNotice("You have already voted for tomorrow's menu.");
       } else {
         setError(message);
       }
@@ -142,15 +161,37 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
         method: "PATCH",
         body: JSON.stringify({ is_open: isOpen }),
       });
-      setPoll((current) =>
-        current && "is_open" in current
-          ? { ...current, is_open: isOpen }
-          : current,
-      );
-      setNotice(isOpen ? "Voting is open for today's period." : "Voting has been closed for today.");
+      setPoll(await apiRequest<AdminPoll>(`/menu-votes/?restaurant_id=${restaurantId}&manage=true`));
+      setNotice(isOpen ? "Voting has been opened for tomorrow's menu." : "Voting has been closed for tomorrow's menu.");
       setError("");
     } catch (requestError) {
       setError(requestError instanceof Error ? requestError.message : "Unable to update voting.");
+    }
+  }
+
+  async function saveConfiguration() {
+    if (!restaurantId || !management) return;
+    setSavingConfiguration(true);
+    setError("");
+    try {
+      await apiRequest(`/menu-votes/?restaurant_id=${restaurantId}&manage=true`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          starts_at: startsAt,
+          ends_at: endsAt,
+          publish_results: publishResults,
+          ...(useAllActiveItems
+            ? { use_all_active_items: true }
+            : { eligible_menu_item_ids: eligibleItemIds }),
+        }),
+      });
+      setNotice("Tomorrow's voting rules have been saved.");
+      const updated = await apiRequest<AdminPoll>(`/menu-votes/?restaurant_id=${restaurantId}&manage=true`);
+      setPoll(updated);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to save voting rules.");
+    } finally {
+      setSavingConfiguration(false);
     }
   }
 
@@ -158,14 +199,16 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
     <main className="min-h-screen space-y-6 bg-slate-50 p-4 text-slate-900 sm:p-8">
       <header className="flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
         <div>
-          <p className="text-sm font-bold uppercase tracking-[0.18em] text-orange-700">
+          <p className="text-sm font-bold uppercase tracking-[0.18em] text-violet-700">
             {management ? "Voting administration" : "Customer menu poll"}
           </p>
-          <h1 className="mt-2 text-3xl font-black sm:text-4xl">Menu Voting</h1>
+          <h1 className="mt-2 text-3xl font-black sm:text-4xl">
+            {management ? "Menu Voting Management" : "What would you like us to cook tomorrow?"}
+          </h1>
           <p className="mt-2 max-w-2xl text-sm text-slate-600">
             {management
-              ? "View today's vote totals and manage the voting period."
-              : "Choose one active menu item in today's restaurant poll. No account is required."}
+              ? "View tomorrow's vote totals, select eligible dishes, and manage the voting period."
+              : "Vote for the dishes you'd love to see on tomorrow's menu. Your feedback helps us plan what to prepare."}
           </p>
         </div>
         <label className="text-sm font-semibold text-slate-700">
@@ -208,14 +251,14 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
         </p>
       ) : (
         <>
-          <section className="flex flex-col justify-between gap-4 rounded-2xl border border-orange-200 bg-orange-50 p-5 sm:flex-row sm:items-center">
+          <section className="flex flex-col justify-between gap-4 rounded-2xl border border-violet-200 bg-violet-50 p-5 sm:flex-row sm:items-center">
             <div>
-              <p className="text-xs font-bold uppercase tracking-wide text-orange-800">Today's voting period</p>
-              <p className="mt-1 text-lg font-bold text-orange-950">
+              <p className="text-xs font-bold uppercase tracking-wide text-violet-800">Tomorrow's voting period</p>
+              <p className="mt-1 text-lg font-bold text-violet-950">
                 {new Date(("period" in poll ? poll.period.vote_date : poll.vote_date) + "T00:00:00").toLocaleDateString()}
               </p>
-              <p className="mt-1 text-sm text-orange-900">{periodDescription}</p>
-              <p className="mt-1 text-sm text-orange-900">
+              <p className="mt-1 text-sm text-violet-900">{periodDescription}</p>
+              <p className="mt-1 text-sm text-violet-900">
                 {periodOpen ? "Voting is open" : "Voting is closed"}
                 {management ? ` · ${totalVotes} vote${totalVotes === 1 ? "" : "s"}` : ""}
               </p>
@@ -224,9 +267,9 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
               <button
                 type="button"
                 onClick={() => void setVotingOpen(!periodOpen)}
-                className={`rounded-xl px-5 py-3 text-sm font-bold text-white ${periodOpen ? "bg-rose-700 hover:bg-rose-800" : "bg-emerald-700 hover:bg-emerald-800"}`}
+                className={`rounded-xl px-5 py-3 text-sm font-bold text-white ${periodOpen ? "bg-rose-700 hover:bg-rose-800" : "bg-violet-700 hover:bg-violet-800"}`}
               >
-                {periodOpen ? "Close today's poll" : "Reopen today's poll"}
+                {periodOpen ? "Close tomorrow's vote" : "Open tomorrow's vote"}
               </button>
             ) : null}
           </section>
@@ -248,9 +291,12 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
                 return (
                   <article
                     key={option.id}
-                    className={`rounded-2xl border bg-white p-5 shadow-sm ${isSelected ? "border-orange-500 ring-2 ring-orange-100" : "border-slate-200"}`}
+                    className={`rounded-2xl border bg-white p-5 shadow-sm ${isSelected ? "border-violet-500 ring-2 ring-violet-100" : "border-slate-200"}`}
                   >
-                    <p className="text-xs font-bold uppercase tracking-wide text-orange-700">{option.category}</p>
+                    {option.image_url && (
+                      <img src={option.image_url} alt="" className="mb-4 h-40 w-full rounded-xl object-cover" />
+                    )}
+                    <p className="text-xs font-bold uppercase tracking-wide text-violet-700">{option.category}</p>
                     <h2 className="mt-2 text-xl font-bold">{option.name}</h2>
                     <p className="mt-2 min-h-10 text-sm text-slate-600">{option.description || "A choice from today's active menu."}</p>
                     {option.price !== undefined && (
@@ -258,14 +304,29 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
                     )}
                     {management ? (
                       <p className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold">
-                        {option.votes ?? 0} votes
+                        <label className="flex items-center justify-between gap-3">
+                          <span>{option.votes ?? 0} vote{option.votes === 1 ? "" : "s"}</span>
+                          <input
+                            type="checkbox"
+                            checked={useAllActiveItems || eligibleItemIds.includes(option.id)}
+                            disabled={useAllActiveItems}
+                            onChange={(event) => {
+                              setEligibleItemIds((current) =>
+                                event.target.checked
+                                  ? [...current, option.id]
+                                  : current.filter((id) => id !== option.id),
+                              );
+                            }}
+                            aria-label={`Include ${option.name} in tomorrow's poll`}
+                          />
+                        </label>
                       </p>
                     ) : (
                       <button
                         type="button"
                         disabled={!periodOpen || selectedItem !== null}
                         onClick={() => setSelectedItem(option.id)}
-                        className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-bold ${isSelected ? "bg-emerald-100 text-emerald-900" : "bg-orange-600 text-white hover:bg-orange-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"}`}
+                        className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-bold ${isSelected ? "bg-emerald-100 text-emerald-900" : "bg-violet-600 text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"}`}
                       >
                         {isSelected ? "Selected" : "Choose this item"}
                       </button>
@@ -276,7 +337,7 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
             </section>
           ) : (
             <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center text-slate-600">
-              {options.length ? "No items match your search." : "There are no eligible active menu items for this poll."}
+              {options.length ? "No items match your search." : "There are no eligible active menu items for tomorrow's vote."}
             </p>
           )}
 
@@ -289,7 +350,7 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
                 type="button"
                 disabled={submitting}
                 onClick={() => void submitVote()}
-                className="rounded-xl bg-orange-600 px-5 py-3 text-sm font-bold text-white hover:bg-orange-700 disabled:opacity-60"
+                className="rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60"
               >
                 {submitting ? "Submitting…" : "Submit vote"}
               </button>
@@ -307,6 +368,39 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
                   </p>
                 ))}
               </div>
+            </section>
+          )}
+
+          {management && (
+            <section className="space-y-5 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+              <div>
+                <h2 className="text-lg font-bold text-slate-900">Tomorrow's voting rules</h2>
+                <p className="mt-1 text-sm text-slate-500">Configure the customer voting window and eligible dishes.</p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <label className="text-sm font-semibold text-slate-700">
+                  Opens at
+                  <input type="time" value={startsAt} onChange={(event) => setStartsAt(event.target.value)} className="mt-2 block w-full rounded-xl border border-slate-300 bg-white px-4 py-3" />
+                </label>
+                <label className="text-sm font-semibold text-slate-700">
+                  Closes at
+                  <input type="time" value={endsAt} onChange={(event) => setEndsAt(event.target.value)} className="mt-2 block w-full rounded-xl border border-slate-300 bg-white px-4 py-3" />
+                </label>
+              </div>
+              <label className="flex items-center gap-3 text-sm text-slate-700">
+                <input type="checkbox" checked={useAllActiveItems} onChange={(event) => setUseAllActiveItems(event.target.checked)} />
+                Use all active menu items
+              </label>
+              <label className="flex items-center gap-3 text-sm text-slate-700">
+                <input type="checkbox" checked={publishResults} onChange={(event) => setPublishResults(event.target.checked)} />
+                Publish results to customers after voting closes
+              </label>
+              {!useAllActiveItems && (
+                <p className="text-sm text-slate-600">Select eligible dishes using the checkboxes in the menu item cards.</p>
+              )}
+              <button type="button" onClick={() => void saveConfiguration()} disabled={savingConfiguration} className="rounded-xl bg-violet-600 px-5 py-3 text-sm font-bold text-white hover:bg-violet-700 disabled:opacity-60">
+                {savingConfiguration ? "Saving…" : "Save voting rules"}
+              </button>
             </section>
           )}
         </>

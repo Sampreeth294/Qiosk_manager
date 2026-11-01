@@ -36,10 +36,14 @@ from .restaurant_permissions import (
 )
 
 
-MANAGER_ROLES = [RestaurantMembership.Role.MANAGER]
+MANAGER_ROLES = [
+    RestaurantMembership.Role.OWNER,
+    RestaurantMembership.Role.MANAGER,
+]
 OPERATIONAL_ROLES = [
     RestaurantMembership.Role.STAFF,
     RestaurantMembership.Role.MANAGER,
+    RestaurantMembership.Role.OWNER,
 ]
 
 

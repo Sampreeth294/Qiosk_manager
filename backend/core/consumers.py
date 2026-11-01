@@ -22,6 +22,7 @@ def _can_access_orders(user, restaurant_id):
         role__in=[
             RestaurantMembership.Role.STAFF,
             RestaurantMembership.Role.MANAGER,
+            RestaurantMembership.Role.OWNER,
         ],
     ).exists()
 
@@ -145,11 +146,15 @@ class PublicOrderConsumer(AsyncJsonWebsocketConsumer):
         if str(order.get("restaurant")) != str(self.restaurant_id):
             return
 
-        order_number = order.get("order_number")
+        order_number = order.get("display_order_number") or order.get("order_number")
         order_status = order.get("status")
         if not order_number:
             return
-        public_number = str(order_number).replace("-", "")[:8].upper()
+        public_number = (
+            str(order_number)
+            if order.get("display_order_number")
+            else str(order_number).replace("-", "")[:8].upper()
+        )
 
         if order_status not in {"CONFIRMED", "PREPARING", "READY"}:
             await self.send_json(

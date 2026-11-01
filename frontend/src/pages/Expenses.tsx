@@ -1,6 +1,8 @@
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { FormEvent } from "react";
+import { apiRequest } from "../api/apiClient";
+import { chooseRestaurantId, storeSelectedRestaurantId } from "../api/restaurantSelection";
 
 type ExpenseCategory =
   | "Ingredients"
@@ -23,62 +25,28 @@ type Expense = {
   paidTo: string;
 };
 
-const initialExpenses: Expense[] = [
-  {
-    id: 1,
-    title: "Vegetable purchase",
-    category: "Ingredients",
-    amount: 2450,
-    date: "2026-10-30",
-    paymentMethod: "UPI",
-    paidTo: "Green Basket",
-  },
-  {
-    id: 2,
-    title: "Electricity bill",
-    category: "Utilities",
-    amount: 3800,
-    date: "2026-10-29",
-    paymentMethod: "Bank Transfer",
-    paidTo: "Electricity Board",
-  },
-  {
-    id: 3,
-    title: "Takeaway packaging",
-    category: "Packaging",
-    amount: 1250,
-    date: "2026-10-28",
-    paymentMethod: "Cash",
-    paidTo: "PackPro Supplies",
-  },
-  {
-    id: 4,
-    title: "Kitchen equipment repair",
-    category: "Maintenance",
-    amount: 1800,
-    date: "2026-10-27",
-    paymentMethod: "Card",
-    paidTo: "City Repairs",
-  },
-  {
-    id: 5,
-    title: "Dairy purchase",
-    category: "Ingredients",
-    amount: 1650,
-    date: "2026-10-26",
-    paymentMethod: "UPI",
-    paidTo: "Morning Dairy",
-  },
-  {
-    id: 6,
-    title: "Monthly rent",
-    category: "Rent",
-    amount: 18000,
-    date: "2026-10-01",
-    paymentMethod: "Bank Transfer",
-    paidTo: "Property Owner",
-  },
-];
+type Restaurant = { id: number; name: string; is_active: boolean };
+type ApiExpense = {
+  id: number;
+  title: string;
+  category: ExpenseCategory;
+  amount: string;
+  date: string;
+  payment_method: PaymentMethod;
+  paid_to: string;
+};
+
+function mapExpense(expense: ApiExpense): Expense {
+  return {
+    id: expense.id,
+    title: expense.title,
+    category: expense.category,
+    amount: Number(expense.amount),
+    date: expense.date,
+    paymentMethod: expense.payment_method,
+    paidTo: expense.paid_to,
+  };
+}
 
 const categories: ExpenseCategory[] = [
   "Ingredients",
@@ -114,8 +82,14 @@ const today = () => {
 };
 
 export default function Expenses() {
-  const [expenses, setExpenses] =
-    useState<Expense[]>(initialExpenses);
+  const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
+  const [restaurantId, setRestaurantId] = useState<number | null>(null);
+  const [expenses, setExpenses] = useState<Expense[]>([]);
+  const [loadingRestaurants, setLoadingRestaurants] = useState(true);
+  const [loadedRestaurantId, setLoadedRestaurantId] = useState<number | null>(null);
+  const [savingExpense, setSavingExpense] = useState(false);
+  const [deletingExpenseId, setDeletingExpenseId] = useState<number | null>(null);
+  const [error, setError] = useState("");
 
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("All");
@@ -131,6 +105,51 @@ export default function Expenses() {
     paymentMethod: "UPI" as PaymentMethod,
     paidTo: "",
   });
+
+  useEffect(() => {
+    let active = true;
+    void apiRequest<Restaurant[]>("/restaurants/?include_inactive=true")
+      .then((data) => {
+        if (!active) return;
+        const activeRestaurants = data.filter((restaurant) => restaurant.is_active);
+        setRestaurants(activeRestaurants);
+        setRestaurantId(chooseRestaurantId(activeRestaurants));
+      })
+      .catch((requestError: unknown) => {
+        if (active) {
+          setError(requestError instanceof Error ? requestError.message : "Unable to load restaurant access.");
+        }
+      })
+      .finally(() => {
+        if (active) setLoadingRestaurants(false);
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!restaurantId) return;
+    let active = true;
+    void apiRequest<ApiExpense[]>(`/expenses/?restaurant_id=${restaurantId}`)
+      .then((data) => {
+        if (!active) return;
+        setExpenses(data.map(mapExpense));
+        setLoadedRestaurantId(restaurantId);
+      })
+      .catch((requestError: unknown) => {
+        if (active) {
+          setExpenses([]);
+          setError(requestError instanceof Error ? requestError.message : "Unable to load expenses.");
+          setLoadedRestaurantId(restaurantId);
+        }
+      });
+    return () => {
+      active = false;
+    };
+  }, [restaurantId]);
+
+  const loadingExpenses = Boolean(restaurantId && loadedRestaurantId !== restaurantId);
 
   const filteredExpenses = useMemo(() => {
     const now = new Date();
@@ -191,18 +210,18 @@ export default function Expenses() {
       ? totalExpenses / filteredExpenses.length
       : 0;
 
-  const largestExpense = expenses.reduce(
-    (largest, expense) =>
-      expense.amount > largest.amount ? expense : largest,
-    expenses[0]
+  const largestExpense = expenses.reduce<Expense | null>(
+    (largest, expense) => !largest || expense.amount > largest.amount ? expense : largest,
+    null,
   );
 
-  function addExpense(event: FormEvent<HTMLFormElement>) {
+  async function addExpense(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     const amount = Number(form.amount);
 
     if (
+      !restaurantId ||
       !form.title.trim() ||
       !form.paidTo.trim() ||
       !Number.isFinite(amount) ||
@@ -213,43 +232,57 @@ export default function Expenses() {
       return;
     }
 
-    const newExpense: Expense = {
-      id: Math.max(0, ...expenses.map((expense) => expense.id)) + 1,
-      title: form.title.trim(),
-      category: form.category,
-      amount,
-      date: form.date,
-      paymentMethod: form.paymentMethod,
-      paidTo: form.paidTo.trim(),
-    };
-
-    setExpenses((current) => [newExpense, ...current]);
-
-    setForm({
-      title: "",
-      category: "Ingredients",
-      amount: "",
-      date: today(),
-      paymentMethod: "UPI",
-      paidTo: "",
-    });
-
-    setShowForm(false);
-    setNotice("Expense recorded successfully.");
+    setSavingExpense(true);
+    setError("");
+    try {
+      const created = await apiRequest<ApiExpense>("/expenses/", {
+        method: "POST",
+        body: JSON.stringify({
+          restaurant_id: restaurantId,
+          title: form.title.trim(),
+          category: form.category,
+          amount: form.amount,
+          date: form.date,
+          payment_method: form.paymentMethod,
+          paid_to: form.paidTo.trim(),
+        }),
+      });
+      setExpenses((current) => [mapExpense(created), ...current]);
+      setForm({
+        title: "",
+        category: "Ingredients",
+        amount: "",
+        date: today(),
+        paymentMethod: "UPI",
+        paidTo: "",
+      });
+      setShowForm(false);
+      setNotice("Expense recorded successfully.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to save expense.");
+    } finally {
+      setSavingExpense(false);
+    }
   }
 
-  function deleteExpense(id: number) {
+  async function deleteExpense(id: number) {
     const confirmed = window.confirm(
       "Are you sure you want to delete this expense?"
     );
 
     if (!confirmed) return;
 
-    setExpenses((current) =>
-      current.filter((expense) => expense.id !== id)
-    );
-
-    setNotice("Expense deleted.");
+    setDeletingExpenseId(id);
+    setError("");
+    try {
+      await apiRequest<void>(`/expenses/${id}/`, { method: "DELETE" });
+      setExpenses((current) => current.filter((expense) => expense.id !== id));
+      setNotice("Expense deleted.");
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : "Unable to delete expense.");
+    } finally {
+      setDeletingExpenseId(null);
+    }
   }
 
   function exportCSV() {
@@ -314,10 +347,29 @@ export default function Expenses() {
           </p>
         </div>
 
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="text-xs font-semibold text-slate-600">
+            Restaurant
+            <select
+              value={restaurantId ?? ""}
+              disabled={loadingRestaurants || restaurants.length === 0}
+              onChange={(event) => {
+                setError("");
+                const selectedId = Number(event.target.value);
+                storeSelectedRestaurantId(selectedId);
+                setRestaurantId(selectedId);
+              }}
+              className="mt-1 block min-w-48 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm"
+            >
+              {restaurants.map((restaurant) => (
+                <option key={restaurant.id} value={restaurant.id}>{restaurant.name}</option>
+              ))}
+            </select>
+          </label>
           <button
             type="button"
             onClick={exportCSV}
+            disabled={!restaurantId || loadingExpenses}
             className="rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50"
           >
             ↓ Export CSV
@@ -325,16 +377,29 @@ export default function Expenses() {
 
           <button
             type="button"
+            disabled={!restaurantId}
             onClick={() => {
               setNotice("");
               setShowForm((value) => !value);
             }}
-            className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
+            className="rounded-xl bg-violet-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
           >
             {showForm ? "Close form" : "+ Add expense"}
           </button>
         </div>
       </div>
+
+      {error && (
+        <p role="alert" className="rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-800">
+          {error}
+        </p>
+      )}
+      {loadingExpenses && <p role="status" className="text-sm text-slate-500">Loading expenses…</p>}
+      {!loadingRestaurants && restaurants.length === 0 && !error && (
+        <p className="rounded-xl border border-slate-200 bg-white px-4 py-8 text-center text-slate-600">
+          No restaurant access is available for this account.
+        </p>
+      )}
 
       {/* Notification */}
       {notice && (
@@ -437,7 +502,7 @@ export default function Expenses() {
                 required
                 type="number"
                 min="0.01"
-                step="any"
+                step="0.01"
                 value={form.amount}
                 onChange={(event) =>
                   setForm({ ...form, amount: event.target.value })
@@ -495,9 +560,10 @@ export default function Expenses() {
           <div className="mt-5 flex flex-wrap gap-3">
             <button
               type="submit"
-              className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-700"
+              disabled={savingExpense}
+              className="rounded-xl bg-violet-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
             >
-              Save expense
+              {savingExpense ? "Saving…" : "Save expense"}
             </button>
 
             <button
@@ -675,10 +741,11 @@ export default function Expenses() {
                   <td className="px-5 py-4 text-right">
                     <button
                       type="button"
-                      onClick={() => deleteExpense(expense.id)}
-                      className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50"
+                      onClick={() => void deleteExpense(expense.id)}
+                      disabled={deletingExpenseId === expense.id}
+                      className="rounded-lg border border-rose-200 px-3 py-1.5 text-xs font-semibold text-rose-600 hover:bg-rose-50 disabled:opacity-60"
                     >
-                      Delete
+                      {deletingExpenseId === expense.id ? "Deleting…" : "Delete"}
                     </button>
                   </td>
                 </tr>
@@ -721,8 +788,7 @@ export default function Expenses() {
         </div>
 
         <div className="border-t border-slate-100 px-5 py-3 text-xs text-slate-500">
-          Demo data only. Expenses are stored in React state and reset on
-          page reload. Export CSV downloads the currently filtered transactions.
+          Expense records are saved to the selected restaurant. Export CSV downloads the currently filtered transactions.
         </div>
       </section>
     </div>

@@ -3,9 +3,11 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db import transaction
+from django.utils import timezone
 from rest_framework import serializers
 
 from .models import (
+    Expense,
     Restaurant,
     RestaurantNotification,
     RestaurantSetting,
@@ -53,6 +55,23 @@ class RestaurantNotificationSerializer(serializers.ModelSerializer):
         model = RestaurantNotification
         fields = "__all__"
         read_only_fields = ["id", "created_at"]
+
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Expense
+        fields = [
+            "id",
+            "restaurant",
+            "title",
+            "category",
+            "amount",
+            "date",
+            "payment_method",
+            "paid_to",
+            "created_at",
+        ]
+        read_only_fields = ["id", "restaurant", "created_at"]
 
 
 class MenuCategorySerializer(serializers.ModelSerializer):
@@ -161,6 +180,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
 class OrderSerializer(serializers.ModelSerializer):
     items = OrderItemSerializer(many=True, read_only=True)
+    display_order_number = serializers.CharField(read_only=True, allow_null=True)
 
     restaurant_name = serializers.CharField(
         source="restaurant.name",
@@ -172,6 +192,7 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = [
             "id",
             "order_number",
+            "display_order_number",
             "restaurant",
             "restaurant_name",
             "order_type",
@@ -265,9 +286,51 @@ class OrderCreateSerializer(serializers.ModelSerializer):
     @transaction.atomic
     def create(self, validated_data):
         items_data = validated_data.pop("items")
+        restaurant = Restaurant.objects.select_for_update().get(
+            pk=validated_data["restaurant"].pk,
+        )
+        setting_timezone = RestaurantSetting.objects.filter(
+            restaurant=restaurant,
+        ).values_list("timezone", flat=True).first()
+        try:
+            order_timezone = ZoneInfo(setting_timezone) if setting_timezone else timezone.get_current_timezone()
+        except ZoneInfoNotFoundError as exc:
+            raise serializers.ValidationError(
+                {"restaurant": "The restaurant timezone setting is invalid."}
+            ) from exc
+
+        order_date = timezone.now().astimezone(order_timezone).date()
+        previous_number = (
+            Order.objects.filter(
+                restaurant=restaurant,
+                display_order_date=order_date,
+                display_order_number__isnull=False,
+            )
+            .order_by("-id")
+            .values_list("display_order_number", flat=True)
+            .first()
+        )
+        if previous_number is None:
+            sequence = 1
+        else:
+            previous_sequence = (
+                (ord(previous_number[0]) - ord("A")) * 99
+                + int(previous_number[2:])
+            )
+            sequence = previous_sequence + 1
+        if sequence > 26 * 99:
+            raise serializers.ValidationError(
+                {"restaurant": "This restaurant has reached its daily order-number limit."}
+            )
+        display_order_number = (
+            f"{chr(ord('A') + (sequence - 1) // 99)}-{(sequence - 1) % 99 + 1:02d}"
+        )
+        validated_data["restaurant"] = restaurant
 
         order = Order.objects.create(
             **validated_data,
+            display_order_number=display_order_number,
+            display_order_date=order_date,
             total_amount=Decimal("0.00"),
         )
 

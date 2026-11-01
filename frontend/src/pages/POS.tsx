@@ -5,6 +5,7 @@ import {
   useState,
 } from "react";
 import { apiRequest } from "../api/apiClient";
+import { chooseRestaurantId, storeSelectedRestaurantId } from "../api/restaurantSelection";
 
 type Restaurant = {
   id: number;
@@ -58,6 +59,7 @@ type CreatedOrderItem = {
 type CreatedOrder = {
   id: number;
   order_number: string;
+  display_order_number: string | null;
   restaurant: number;
   restaurant_name: string;
   order_type: string;
@@ -157,9 +159,8 @@ export default function POS() {
         setCategories(categoryData);
         setMenuItems(menuData);
 
-        if (restaurantData.length > 0) {
-          setRestaurantId(String(restaurantData[0].id));
-        }
+        const selected = chooseRestaurantId(restaurantData);
+        if (selected) setRestaurantId(String(selected));
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -298,6 +299,7 @@ export default function POS() {
   }
 
   function changeRestaurant(value: string) {
+    storeSelectedRestaurantId(Number(value));
     setRestaurantId(value);
     setCategoryId("All");
     setCart([]);
@@ -423,7 +425,7 @@ export default function POS() {
         <body>
           <h1>Qiosk Manager</h1>
           <p class="muted">Order receipt</p>
-          <p>Order: ${safe(receipt.order_number)}</p>
+          <p>Order: ${safe(receipt.display_order_number ?? receipt.order_number)}</p>
           <p>Restaurant: ${safe(receipt.restaurant_name)}</p>
           <p>Type: ${safe(receipt.order_type)}</p>
           ${
@@ -551,7 +553,7 @@ export default function POS() {
                     className="border-b border-slate-100 last:border-0"
                   >
                     <td className="whitespace-nowrap px-3 py-3 font-semibold text-slate-800">
-                      #{order.order_number}
+                      #{order.display_order_number ?? order.order_number}
                     </td>
 
                     <td className="px-3 py-3 text-slate-600">
@@ -603,7 +605,7 @@ export default function POS() {
               </p>
 
               <p className="mt-1 break-all text-sm text-emerald-700">
-                Order #{receipt.order_number}
+                Order #{receipt.display_order_number ?? receipt.order_number}
               </p>
 
               <p className="mt-1 text-sm text-emerald-700">

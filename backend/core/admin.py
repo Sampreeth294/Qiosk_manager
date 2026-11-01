@@ -25,7 +25,10 @@ class RestaurantMembershipAdmin(admin.ModelAdmin):
     def _managed_restaurant_ids(self, request):
         return RestaurantMembership.objects.filter(
             user=request.user,
-            role=RestaurantMembership.Role.MANAGER,
+            role__in=[
+                RestaurantMembership.Role.OWNER,
+                RestaurantMembership.Role.MANAGER,
+            ],
             is_active=True,
         ).values_list("restaurant_id", flat=True)
 

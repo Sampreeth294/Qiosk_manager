@@ -1,10 +1,13 @@
 
 import json
+import re
 import uuid
 from datetime import timedelta
 from decimal import Decimal
 
 from django.contrib.auth import get_user_model
+from django.core.cache import cache
+from django.core import mail
 from django.db import IntegrityError, transaction
 from django.test import Client, TestCase, TransactionTestCase, override_settings
 from django.urls import reverse
@@ -15,11 +18,13 @@ from channels.routing import URLRouter
 from channels.testing import WebsocketCommunicator
 
 from .models import (
+    Expense,
     FoodRating,
     Ingredient,
     MenuCategory,
     MenuItem,
     MenuVote,
+    MenuVotingPeriod,
     Order,
     OrderItem,
     PurchaseOrder,
@@ -27,6 +32,8 @@ from .models import (
     Restaurant,
     RestaurantMembership,
     RestaurantNotification,
+    RestaurantInvitation,
+    RestaurantSetupState,
     RestaurantSetting,
     StockMovement,
     Supplier,
@@ -725,6 +732,7 @@ class OrderApiTests(APITestCase):
         self.assertEqual(response.status_code, 201)
         self.assertEqual(Order.objects.count(), 1)
         self.assertEqual(OrderItem.objects.count(), 1)
+        self.assertEqual(response.data["display_order_number"], "A-01")
         self.assertEqual(response.data["total_amount"], "25.00")
         self.assertEqual(
             response.data["items"][0]["item_name"],
@@ -744,6 +752,44 @@ class OrderApiTests(APITestCase):
             list_response.data[0]["items"][0]["quantity"],
             2,
         )
+
+    def test_guest_order_numbers_increment_per_restaurant_and_day(self):
+        order_payload = {
+            "restaurant": self.restaurant.pk,
+            "order_type": "TAKEAWAY",
+            "items": [{"menu_item": self.menu_item.pk, "quantity": 1}],
+        }
+
+        first = self.client.post(
+            "/api/orders/create/",
+            order_payload,
+            format="json",
+        )
+        second = self.client.post(
+            "/api/orders/create/",
+            order_payload,
+            format="json",
+        )
+
+        self.assertEqual(first.status_code, 201)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(first.data["display_order_number"], "A-01")
+        self.assertEqual(second.data["display_order_number"], "A-02")
+        self.assertNotEqual(first.data["order_number"], second.data["order_number"])
+
+    def test_guest_order_creation_requires_csrf(self):
+        client = Client(enforce_csrf_checks=True)
+        response = client.post(
+            "/api/orders/create/",
+            data=json.dumps({
+                "restaurant": self.restaurant.pk,
+                "order_type": "TAKEAWAY",
+                "items": [{"menu_item": self.menu_item.pk, "quantity": 1}],
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(Order.objects.exists())
 
     def test_order_status_update_persists(self):
         self.client.force_login(self.staff)
@@ -959,6 +1005,26 @@ class ReportsAndEngagementApiTests(APITestCase):
         )
 
     def test_reports_summary_uses_restaurant_scope(self):
+        Expense.objects.create(
+            restaurant=self.restaurant,
+            created_by=self.manager,
+            title="Electricity",
+            category=Expense.Category.UTILITIES,
+            amount="45.50",
+            date=timezone.localdate(),
+            payment_method=Expense.PaymentMethod.UPI,
+            paid_to="Power Board",
+        )
+        Expense.objects.create(
+            restaurant=self.other_restaurant,
+            created_by=self.other_user,
+            title="Foreign expense",
+            category=Expense.Category.OTHER,
+            amount="900.00",
+            date=timezone.localdate(),
+            payment_method=Expense.PaymentMethod.CASH,
+            paid_to="Other Vendor",
+        )
         self.client.force_login(self.manager)
         response = self.client.get(
             "/api/reports/summary/",
@@ -968,9 +1034,13 @@ class ReportsAndEngagementApiTests(APITestCase):
         payload = response.json()
         self.assertEqual(payload["summary"]["orders"], 1)
         self.assertEqual(payload["summary"]["revenue"], 210.0)
+        self.assertEqual(payload["status_counts"]["COMPLETED"], 1)
+        self.assertEqual(payload["current_status_counts"]["COMPLETED"], 1)
         self.assertEqual(payload["best_sellers"][0]["name"], "Burger")
         self.assertEqual(payload["inventory_summary"]["low_stock_items"], 1)
         self.assertEqual(payload["menu_summary"]["active_items"], 2)
+        self.assertEqual(payload["expense_summary"]["total"], 45.5)
+        self.assertEqual(payload["expense_summary"]["count"], 1)
 
         supplier = Supplier.objects.create(
             restaurant=self.restaurant,
@@ -987,6 +1057,129 @@ class ReportsAndEngagementApiTests(APITestCase):
             {"restaurant_id": self.restaurant.id},
         )
         self.assertEqual(updated_response.json()["purchase_summary"]["pending"], 1)
+
+    def test_dashboard_daily_and_current_status_counts_use_expected_scopes(self):
+        old_order = Order.objects.create(
+            restaurant=self.restaurant,
+            status=Order.OrderStatus.PREPARING,
+        )
+        Order.objects.filter(pk=old_order.pk).update(
+            created_at=timezone.now() - timedelta(days=2),
+        )
+        self.client.force_login(self.manager)
+        response = self.client.get(
+            "/api/reports/summary/",
+            {"restaurant_id": self.restaurant.pk, "range": "today"},
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["summary"]["orders"], 1)
+        self.assertEqual(payload["status_counts"]["COMPLETED"], 1)
+        self.assertEqual(payload["current_status_counts"]["COMPLETED"], 1)
+        self.assertEqual(payload["current_status_counts"]["PREPARING"], 1)
+        self.assertEqual(old_order.status, Order.OrderStatus.PREPARING)
+        orders_response = self.client.get(
+            "/api/orders/",
+            {"restaurant_id": self.restaurant.pk},
+        )
+        self.assertEqual(orders_response.status_code, 200)
+        order_status_counts = {
+            order_status: sum(
+                order["status"] == order_status
+                for order in orders_response.json()
+            )
+            for order_status, _ in Order.OrderStatus.choices
+        }
+        self.assertEqual(payload["current_status_counts"], order_status_counts)
+
+    def test_expenses_are_persistent_and_manager_scoped(self):
+        self.client.force_login(self.manager)
+        create = self.client.post(
+            "/api/expenses/",
+            {
+                "restaurant_id": self.restaurant.pk,
+                "title": "Packaging",
+                "category": Expense.Category.PACKAGING,
+                "amount": "125.75",
+                "date": timezone.localdate().isoformat(),
+                "payment_method": Expense.PaymentMethod.CARD,
+                "paid_to": "Box supplier",
+            },
+            format="json",
+        )
+        self.assertEqual(create.status_code, 201)
+        self.assertEqual(create.json()["amount"], "125.75")
+        self.assertEqual(Expense.objects.get().created_by_id, self.manager.pk)
+
+        listing = self.client.get(
+            "/api/expenses/",
+            {"restaurant_id": self.restaurant.pk},
+        )
+        self.assertEqual(listing.status_code, 200)
+        self.assertEqual(len(listing.json()), 1)
+
+        foreign_expense = Expense.objects.create(
+            restaurant=self.other_restaurant,
+            title="Other restaurant expense",
+            category=Expense.Category.RENT,
+            amount="10.00",
+            date=timezone.localdate(),
+            payment_method=Expense.PaymentMethod.CASH,
+            paid_to="Landlord",
+        )
+        self.assertEqual(
+            self.client.get(
+                "/api/expenses/",
+                {"restaurant_id": self.other_restaurant.pk},
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/expenses/",
+                {
+                    "restaurant_id": self.other_restaurant.pk,
+                    "title": "Unauthorized",
+                    "category": Expense.Category.OTHER,
+                    "amount": "1.00",
+                    "date": timezone.localdate().isoformat(),
+                    "payment_method": Expense.PaymentMethod.CASH,
+                    "paid_to": "Vendor",
+                },
+                format="json",
+            ).status_code,
+            403,
+        )
+        self.assertEqual(
+            self.client.delete(f"/api/expenses/{foreign_expense.pk}/").status_code,
+            404,
+        )
+        self.assertTrue(Expense.objects.filter(pk=foreign_expense.pk).exists())
+
+        delete = self.client.delete(f"/api/expenses/{create.json()['id']}/")
+        self.assertEqual(delete.status_code, 204)
+        self.assertFalse(Expense.objects.filter(pk=create.json()["id"]).exists())
+
+    def test_expense_creation_requires_authentication_and_positive_amount(self):
+        response = self.client.get("/api/expenses/", {"restaurant_id": self.restaurant.pk})
+        self.assertEqual(response.status_code, 401)
+
+        self.client.force_login(self.manager)
+        response = self.client.post(
+            "/api/expenses/",
+            {
+                "restaurant_id": self.restaurant.pk,
+                "title": "Invalid expense",
+                "category": Expense.Category.OTHER,
+                "amount": "0.00",
+                "date": timezone.localdate().isoformat(),
+                "payment_method": Expense.PaymentMethod.CASH,
+                "paid_to": "Vendor",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(Expense.objects.exists())
 
     def test_reports_reject_cross_restaurant_access(self):
         self.client.force_login(self.manager)
@@ -1076,13 +1269,12 @@ class ReportsAndEngagementApiTests(APITestCase):
         self.assertEqual(MenuVote.objects.get().menu_item_id, self.item_a.id)
 
     def test_food_rating_restricts_duplicate_entries_per_order(self):
-        self.client.force_login(self.manager)
+        order_item = self.order.items.get(menu_item=self.item_a)
         response = self.client.post(
             "/api/food-ratings/",
             {
-                "restaurant_id": self.restaurant.id,
-                "order": self.order.id,
-                "menu_item": self.item_a.id,
+                "order_number": str(self.order.order_number),
+                "order_item_id": order_item.pk,
                 "rating": 5,
                 "comment": "Excellent",
             },
@@ -1092,15 +1284,14 @@ class ReportsAndEngagementApiTests(APITestCase):
         second = self.client.post(
             "/api/food-ratings/",
             {
-                "restaurant_id": self.restaurant.id,
-                "order": self.order.id,
-                "menu_item": self.item_a.id,
+                "order_number": str(self.order.order_number),
+                "order_item_id": order_item.pk,
                 "rating": 4,
                 "comment": "Still good",
             },
             format="json",
         )
-        self.assertEqual(second.status_code, 200)
+        self.assertEqual(second.status_code, 409)
         self.assertEqual(FoodRating.objects.filter(order=self.order).count(), 1)
 
     def test_restaurant_settings_and_notifications_are_scoped(self):
@@ -1171,6 +1362,8 @@ class PublicLiveDisplayAndVotingApiTests(APITestCase):
         order = Order.objects.create(
             restaurant=self.restaurant,
             status=Order.OrderStatus.READY,
+            display_order_number="A-01",
+            display_order_date=timezone.now().date(),
         )
         Order.objects.create(
             restaurant=self.other_restaurant,
@@ -1187,7 +1380,7 @@ class PublicLiveDisplayAndVotingApiTests(APITestCase):
         self.assertEqual(
             payload["orders"][0],
             {
-                "public_number": str(order.order_number).replace("-", "")[:8].upper(),
+                "public_number": "A-01",
                 "status": "READY",
                 "created_at": order.created_at.isoformat().replace("+00:00", "Z"),
             },
@@ -1213,6 +1406,13 @@ class PublicLiveDisplayAndVotingApiTests(APITestCase):
         )
         self.assertEqual(poll.status_code, 200)
         self.assertTrue(poll.json()["period"]["is_open"])
+        expected_target_date = (
+            timezone.now().astimezone().date() + timedelta(days=1)
+        )
+        self.assertEqual(
+            poll.json()["period"]["vote_date"],
+            expected_target_date.isoformat(),
+        )
         self.assertEqual(poll.json()["options"][0]["id"], self.item.pk)
         self.assertIsNone(poll.json()["total_votes"])
         self.assertTrue(poll.cookies["qiosk_menu_voter"]["httponly"])
@@ -1231,6 +1431,23 @@ class PublicLiveDisplayAndVotingApiTests(APITestCase):
         self.assertEqual(duplicate.status_code, 409)
         self.assertEqual(MenuVote.objects.filter(restaurant=self.restaurant).count(), 1)
         self.assertIsNone(MenuVote.objects.get().user_id)
+        self.assertEqual(
+            MenuVote.objects.get().vote_date,
+            expected_target_date,
+        )
+
+    def test_anonymous_vote_submission_requires_csrf(self):
+        client = Client(enforce_csrf_checks=True)
+        response = client.post(
+            "/api/menu-votes/",
+            data=json.dumps({
+                "restaurant_id": self.restaurant.pk,
+                "menu_item_id": self.item.pk,
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(MenuVote.objects.exists())
 
     def test_guest_vote_is_rejected_for_item_from_another_restaurant(self):
         response = self.client.post(
@@ -1285,6 +1502,77 @@ class PublicLiveDisplayAndVotingApiTests(APITestCase):
         self.assertEqual(close_response.status_code, 200)
         self.assertFalse(close_response.json()["is_open"])
 
+    def test_staff_configures_eligible_dishes_and_customer_results_visibility(self):
+        second_item = MenuItem.objects.create(
+            category=self.category,
+            name="Second Dish",
+            price="15.00",
+        )
+        self.client.force_login(self.manager)
+        configure_response = self.client.patch(
+            "/api/menu-votes/",
+            {
+                "restaurant_id": self.restaurant.pk,
+                "eligible_menu_item_ids": [self.item.pk],
+                "starts_at": "00:00",
+                "ends_at": "23:59",
+                "publish_results": True,
+            },
+            format="json",
+        )
+        self.assertEqual(configure_response.status_code, 200)
+        self.client.logout()
+
+        poll = self.client.get(
+            "/api/menu-votes/",
+            {"restaurant_id": self.restaurant.pk},
+        )
+        self.assertEqual([item["id"] for item in poll.json()["options"]], [self.item.pk])
+        self.assertFalse(poll.json()["results_visible"])
+        self.assertEqual(poll.json()["total_votes"], None)
+
+        period = MenuVotingPeriod.objects.get(restaurant=self.restaurant)
+        period.is_open = False
+        period.save(update_fields=["is_open", "updated_at"])
+        published_poll = self.client.get(
+            "/api/menu-votes/",
+            {"restaurant_id": self.restaurant.pk},
+        )
+        self.assertTrue(published_poll.json()["results_visible"])
+        self.assertNotIn(second_item.pk, [item["id"] for item in published_poll.json()["options"]])
+
+    def test_voting_schedule_and_eligible_dish_validation(self):
+        self.client.force_login(self.manager)
+        conflicting_item_configuration = self.client.patch(
+            "/api/menu-votes/",
+            {
+                "restaurant_id": self.restaurant.pk,
+                "eligible_menu_item_ids": [self.item.pk],
+                "use_all_active_items": True,
+            },
+            format="json",
+        )
+        self.assertEqual(conflicting_item_configuration.status_code, 400)
+        invalid_schedule = self.client.patch(
+            "/api/menu-votes/",
+            {
+                "restaurant_id": self.restaurant.pk,
+                "starts_at": "19:00",
+                "ends_at": "09:00",
+            },
+            format="json",
+        )
+        self.assertEqual(invalid_schedule.status_code, 400)
+        cross_restaurant_option = self.client.patch(
+            "/api/menu-votes/",
+            {
+                "restaurant_id": self.restaurant.pk,
+                "eligible_menu_item_ids": [self.other_item.pk],
+            },
+            format="json",
+        )
+        self.assertEqual(cross_restaurant_option.status_code, 400)
+
     def test_dashboard_report_requires_membership_and_valid_date_range(self):
         anonymous_response = self.client.get(
             "/api/reports/summary/",
@@ -1317,6 +1605,424 @@ class PublicLiveDisplayAndVotingApiTests(APITestCase):
             },
         )
         self.assertEqual(malformed_response.status_code, 400)
+
+
+@override_settings(
+    MAILERS={"default": {"BACKEND": "django.core.mail.backends.locmem.EmailBackend"}},
+    PASSWORD_RESET_TIMEOUT=3600,
+)
+class AccountSetupAndManagementApiTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        state, _ = RestaurantSetupState.objects.get_or_create(pk=1)
+        state.completed_at = None
+        state.save(update_fields=["completed_at"])
+
+    def test_initial_setup_requires_csrf_for_session_clients(self):
+        client = Client(enforce_csrf_checks=True)
+        response = client.post(
+            "/api/auth/setup/",
+            data=json.dumps({
+                "username": "csrf-owner",
+                "email": "csrf-owner@example.com",
+                "password": "N0t-common-password-2026!",
+                "password_confirm": "N0t-common-password-2026!",
+                "restaurant_name": "CSRF Restaurant",
+                "address": "1 Safe Street",
+            }),
+            content_type="application/json",
+        )
+        self.assertEqual(response.status_code, 403)
+        self.assertFalse(get_user_model().objects.exists())
+
+    def test_initial_setup_is_one_time_and_creates_owner_atomically(self):
+        available = self.client.get("/api/auth/setup/")
+        self.assertTrue(available.json()["available"])
+
+        response = self.client.post(
+            "/api/auth/setup/",
+            {
+                "username": "first-owner",
+                "email": "owner@example.com",
+                "password": "N0t-common-password-2026!",
+                "password_confirm": "N0t-common-password-2026!",
+                "restaurant_name": "First Restaurant",
+                "address": "1 Owner Street",
+                "phone_number": "1234567890",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        owner = get_user_model().objects.get(username="first-owner")
+        self.assertTrue(owner.check_password("N0t-common-password-2026!"))
+        membership = RestaurantMembership.objects.get(user=owner)
+        self.assertEqual(membership.role, RestaurantMembership.Role.OWNER)
+        self.assertTrue(membership.is_active)
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 200)
+        self.assertFalse(self.client.get("/api/auth/setup/").json()["available"])
+        duplicate = self.client.post(
+            "/api/auth/setup/",
+            {
+                "username": "second-owner",
+                "email": "second@example.com",
+                "password": "N0t-common-password-2026!",
+                "password_confirm": "N0t-common-password-2026!",
+                "restaurant_name": "Second Restaurant",
+                "address": "2 Owner Street",
+            },
+            format="json",
+        )
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(Restaurant.objects.count(), 1)
+
+    def test_initial_setup_rejects_mismatched_and_weak_passwords(self):
+        mismatch = self.client.post(
+            "/api/auth/setup/",
+            {
+                "username": "first-owner",
+                "email": "owner@example.com",
+                "password": "first-password",
+                "password_confirm": "different-password",
+                "restaurant_name": "First Restaurant",
+                "address": "1 Owner Street",
+            },
+            format="json",
+        )
+        self.assertEqual(mismatch.status_code, 400)
+        self.assertFalse(get_user_model().objects.exists())
+
+        weak = self.client.post(
+            "/api/auth/setup/",
+            {
+                "username": "first-owner",
+                "email": "owner@example.com",
+                "password": "password",
+                "password_confirm": "password",
+                "restaurant_name": "First Restaurant",
+                "address": "1 Owner Street",
+            },
+            format="json",
+        )
+        self.assertEqual(weak.status_code, 400)
+        self.assertFalse(get_user_model().objects.exists())
+
+    def test_restaurant_staff_invite_uses_expiring_single_use_password_setup(self):
+        restaurant = Restaurant.objects.create(name="Invite Place", address="1 Invite Road")
+        owner = get_user_model().objects.create_user(
+            username="invite-owner",
+            email="invite-owner@example.com",
+            password="Owner-password-2026!",
+        )
+        RestaurantMembership.objects.create(
+            user=owner,
+            restaurant=restaurant,
+            role=RestaurantMembership.Role.OWNER,
+        )
+        self.client.force_login(owner)
+        invite = self.client.post(
+            "/api/users/",
+            {
+                "restaurant_id": restaurant.pk,
+                "username": "invited-staff",
+                "email": "invited@example.com",
+                "role": RestaurantMembership.Role.STAFF,
+            },
+            format="json",
+        )
+        self.assertEqual(invite.status_code, 201)
+        invited_user = get_user_model().objects.get(username="invited-staff")
+        self.assertFalse(invited_user.is_active)
+        self.assertFalse(invited_user.has_usable_password())
+        self.assertNotIn("token", invite.json())
+        token_match = re.search(r"/admin/invite/([^\s]+)", mail.outbox[0].body)
+        self.assertIsNotNone(token_match)
+        token = token_match.group(1)
+
+        accept = self.client.post(
+            "/api/auth/invitations/accept/",
+            {
+                "token": token,
+                "password": "Invited-password-2026!",
+                "password_confirm": "Invited-password-2026!",
+            },
+            format="json",
+        )
+        self.assertEqual(accept.status_code, 200)
+        invited_user.refresh_from_db()
+        membership = RestaurantMembership.objects.get(user=invited_user, restaurant=restaurant)
+        self.assertTrue(invited_user.is_active)
+        self.assertTrue(invited_user.check_password("Invited-password-2026!"))
+        self.assertTrue(membership.is_active)
+
+        duplicate = self.client.post(
+            "/api/auth/invitations/accept/",
+            {
+                "token": token,
+                "password": "Other-password-2026!",
+                "password_confirm": "Other-password-2026!",
+            },
+            format="json",
+        )
+        self.assertEqual(duplicate.status_code, 400)
+
+    def test_managers_cannot_invite_managers_or_access_foreign_memberships(self):
+        restaurant = Restaurant.objects.create(name="Staff Place", address="1 Staff Road")
+        other_restaurant = Restaurant.objects.create(name="Other Place", address="2 Staff Road")
+        manager = get_user_model().objects.create_user(
+            username="staff-manager",
+            email="staff-manager@example.com",
+            password="Manager-password-2026!",
+        )
+        membership = RestaurantMembership.objects.create(
+            user=manager,
+            restaurant=restaurant,
+            role=RestaurantMembership.Role.MANAGER,
+        )
+        self.client.force_login(manager)
+        denied_invite = self.client.post(
+            "/api/users/",
+            {
+                "restaurant_id": restaurant.pk,
+                "username": "manager-two",
+                "email": "manager-two@example.com",
+                "role": RestaurantMembership.Role.MANAGER,
+            },
+            format="json",
+        )
+        self.assertEqual(denied_invite.status_code, 403)
+        foreign_list = self.client.get("/api/users/", {"restaurant_id": other_restaurant.pk})
+        self.assertEqual(foreign_list.status_code, 403)
+        local_list = self.client.get("/api/users/", {"restaurant_id": restaurant.pk})
+        self.assertEqual(local_list.status_code, 200)
+        self.client.logout()
+        anonymous_list = self.client.get("/api/users/", {"restaurant_id": restaurant.pk})
+        self.assertEqual(anonymous_list.status_code, 401)
+
+    def test_last_active_owner_cannot_be_deactivated(self):
+        restaurant = Restaurant.objects.create(name="Owner Place", address="1 Owner Road")
+        owner = get_user_model().objects.create_user(
+            username="only-owner",
+            email="only-owner@example.com",
+            password="Owner-password-2026!",
+        )
+        membership = RestaurantMembership.objects.create(
+            user=owner,
+            restaurant=restaurant,
+            role=RestaurantMembership.Role.OWNER,
+        )
+        self.client.force_login(owner)
+        response = self.client.patch(
+            f"/api/users/{membership.pk}/",
+            {"is_active": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        membership.refresh_from_db()
+        self.assertTrue(membership.is_active)
+
+    def test_authenticated_password_change_requires_current_password(self):
+        user = get_user_model().objects.create_user(
+            username="password-user",
+            password="Old-password-2026!",
+        )
+        self.client.force_login(user)
+        rejected = self.client.post(
+            "/api/auth/password/change/",
+            {
+                "current_password": "incorrect",
+                "password": "New-password-2026!",
+                "password_confirm": "New-password-2026!",
+            },
+            format="json",
+        )
+        self.assertEqual(rejected.status_code, 400)
+        changed = self.client.post(
+            "/api/auth/password/change/",
+            {
+                "current_password": "Old-password-2026!",
+                "password": "New-password-2026!",
+                "password_confirm": "New-password-2026!",
+            },
+            format="json",
+        )
+        self.assertEqual(changed.status_code, 200)
+        user.refresh_from_db()
+        self.assertTrue(user.check_password("New-password-2026!"))
+        self.assertEqual(self.client.get("/api/auth/me/").status_code, 200)
+
+
+class GuestFoodRatingApiTests(APITestCase):
+    def setUp(self):
+        cache.clear()
+        self.restaurant = Restaurant.objects.create(name="Ratings Place", address="1 Rating Road")
+        self.other_restaurant = Restaurant.objects.create(name="Other Ratings", address="2 Rating Road")
+        self.category = MenuCategory.objects.create(restaurant=self.restaurant, name="Dinner")
+        self.item = MenuItem.objects.create(category=self.category, name="Noodles", price="12.00")
+        self.other_item = MenuItem.objects.create(
+            category=MenuCategory.objects.create(restaurant=self.other_restaurant, name="Other"),
+            name="Other Dish",
+            price="9.00",
+        )
+        self.order = Order.objects.create(
+            restaurant=self.restaurant,
+            order_number=uuid.uuid4(),
+            status=Order.OrderStatus.COMPLETED,
+            total_amount="12.00",
+        )
+        self.order_item = OrderItem.objects.create(
+            order=self.order,
+            menu_item=self.item,
+            item_name=self.item.name,
+            unit_price="12.00",
+            quantity=1,
+            subtotal="12.00",
+        )
+
+    def test_guest_order_returns_only_the_order_number_for_rating_lookup(self):
+        response = self.client.post(
+            "/api/orders/create/",
+            {
+                "restaurant": self.restaurant.pk,
+                "order_type": Order.OrderType.TAKEAWAY,
+                "items": [{"menu_item": self.item.pk, "quantity": 2}],
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertIn("order_number", response.json())
+        self.assertNotIn("rating_receipt_token", response.json())
+        created_order = Order.objects.get(order_number=response.json()["order_number"])
+        self.assertEqual(created_order.receipt_token_hash, "")
+
+    def test_guest_verifies_completed_order_without_private_order_data(self):
+        response = self.client.post(
+            "/api/food-ratings/verify/",
+            {"order_number": str(self.order.order_number)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        payload = response.json()
+        self.assertEqual(payload["items"], [{"order_item_id": self.order_item.pk, "name": "Noodles"}])
+        self.assertNotIn("payment_status", payload)
+        self.assertNotIn("customer", payload)
+        self.assertNotIn("phone", payload)
+        self.assertNotIn("restaurant", payload)
+        self.assertNotIn("total_amount", payload)
+        self.assertEqual(payload["display_order_number"], self.order.display_order_number)
+
+    def test_public_display_order_number_alone_cannot_verify_a_rating_order(self):
+        response = self.client.post(
+            "/api/food-ratings/verify/",
+            {"order_number": "A-15"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 404)
+
+    def test_guest_rating_is_persisted_once_per_order_item(self):
+        rating_payload = {
+            "order_number": str(self.order.order_number),
+            "order_item_id": self.order_item.pk,
+            "rating": 5,
+            "comment": "Excellent",
+        }
+        response = self.client.post("/api/food-ratings/", rating_payload, format="json")
+        self.assertEqual(response.status_code, 201)
+        rating = FoodRating.objects.get()
+        self.assertIsNone(rating.user_id)
+        self.assertEqual(rating.order_item_id, self.order_item.pk)
+        duplicate = self.client.post("/api/food-ratings/", rating_payload, format="json")
+        self.assertEqual(duplicate.status_code, 409)
+        self.assertEqual(FoodRating.objects.count(), 1)
+        lookup_again = self.client.post(
+            "/api/food-ratings/verify/",
+            {"order_number": str(self.order.order_number)},
+            format="json",
+        )
+        self.assertEqual(lookup_again.status_code, 200)
+        self.assertEqual(lookup_again.json()["items"], [])
+        self.assertTrue(lookup_again.json()["already_rated"])
+
+    def test_unknown_order_and_unrelated_order_item_are_rejected(self):
+        unknown = self.client.post(
+            "/api/food-ratings/verify/",
+            {"order_number": str(uuid.uuid4())},
+            format="json",
+        )
+        self.assertEqual(unknown.status_code, 404)
+
+        pending_order = Order.objects.create(
+            restaurant=self.restaurant,
+            status=Order.OrderStatus.PREPARING,
+        )
+        pending = self.client.post(
+            "/api/food-ratings/verify/",
+            {"order_number": str(pending_order.order_number)},
+            format="json",
+        )
+        self.assertEqual(pending.status_code, 409)
+        self.assertIn("not complete", pending.json()["detail"].lower())
+
+        unrelated_item = self.client.post(
+            "/api/food-ratings/",
+            {
+            "order_number": str(self.order.order_number),
+                "order_item_id": self.order_item.pk + 100,
+                "rating": 4,
+            },
+            format="json",
+        )
+        self.assertEqual(unrelated_item.status_code, 400)
+        invalid_rating = self.client.post(
+            "/api/food-ratings/",
+            {
+                "order_number": str(self.order.order_number),
+                "order_item_id": self.order_item.pk,
+                "rating": 6,
+            },
+            format="json",
+        )
+        self.assertEqual(invalid_rating.status_code, 400)
+
+    def test_guest_rating_cannot_cross_restaurant_and_staff_gets_aggregates(self):
+        other_order = Order.objects.create(
+            restaurant=self.other_restaurant,
+            status=Order.OrderStatus.COMPLETED,
+        )
+        self.assertEqual(
+            self.client.post(
+                "/api/food-ratings/verify/",
+                {"order_number": str(other_order.order_number)},
+                format="json",
+            ).status_code,
+            200,
+        )
+
+        user = get_user_model().objects.create_user(
+            username="rating-manager",
+            email="rating-manager@example.com",
+            password="Rating-password-2026!",
+        )
+        RestaurantMembership.objects.create(
+            user=user,
+            restaurant=self.restaurant,
+            role=RestaurantMembership.Role.MANAGER,
+        )
+        self.client.force_login(user)
+        self.client.post(
+            "/api/food-ratings/",
+            {
+                "order_number": str(self.order.order_number),
+                "order_item_id": self.order_item.pk,
+                "rating": 4,
+                "comment": "Good",
+            },
+            format="json",
+        )
+        response = self.client.get("/api/food-ratings/", {"restaurant_id": self.restaurant.pk})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["rating_count"], 1)
+        self.assertEqual(response.json()["average_rating"], 4.0)
+        self.assertNotIn("user", response.json()["recent"][0])
 
 
 @override_settings(
@@ -1380,6 +2086,7 @@ class PublicOrderWebSocketTests(TransactionTestCase):
                     "order": {
                         "restaurant": self.restaurant.pk,
                         "order_number": order_number,
+                        "display_order_number": "B-07",
                         "status": "READY",
                         "created_at": "2026-11-01T10:00:00Z",
                         "customer_name": "Private Name",
@@ -1395,7 +2102,7 @@ class PublicOrderWebSocketTests(TransactionTestCase):
             {
                 "event": "order.updated",
                 "order": {
-                    "public_number": order_number.replace("-", "")[:8].upper(),
+                    "public_number": "B-07",
                     "status": "READY",
                     "created_at": "2026-11-01T10:00:00Z",
                 },
