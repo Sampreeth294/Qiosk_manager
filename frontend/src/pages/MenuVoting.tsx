@@ -118,6 +118,15 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
   const totalVotes = poll
     ? "total_votes" in poll ? poll.total_votes : 0
     : 0;
+  const managementTotalVotes =
+    typeof totalVotes === "number" ? totalVotes : 0;
+  const managementOptions = management
+    ? options.filter((option) => option.eligible)
+    : [];
+  const maxOptionVotes = Math.max(
+    1,
+    ...managementOptions.map((option) => option.votes ?? 0),
+  );
   const periodDescription = poll && "period" in poll
     ? `${poll.period.start_time}–${poll.period.end_time} (restaurant local time)`
     : "Restaurant local time";
@@ -273,6 +282,76 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
               </button>
             ) : null}
           </section>
+
+          {management && (
+            <section
+              aria-labelledby="vote-analysis-title"
+              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-7"
+            >
+              <div className="flex flex-wrap items-end justify-between gap-3">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-violet-700">
+                    Live poll analysis
+                  </p>
+                  <h2 id="vote-analysis-title" className="mt-1 text-xl font-bold text-slate-900">
+                    Votes by menu item
+                  </h2>
+                  <p className="mt-1 text-sm text-slate-500">
+                    Tomorrow’s poll · {new Intl.NumberFormat("en-IN").format(managementTotalVotes)} total votes
+                  </p>
+                </div>
+                <span className="rounded-xl bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800">
+                  {managementOptions.length} eligible {managementOptions.length === 1 ? "item" : "items"}
+                </span>
+              </div>
+
+              {managementOptions.length === 0 ? (
+                <p className="mt-6 rounded-xl bg-slate-50 p-5 text-center text-sm text-slate-600">
+                  No eligible menu items are available to chart.
+                </p>
+              ) : managementTotalVotes === 0 ? (
+                <p className="mt-6 rounded-xl bg-slate-50 p-5 text-center text-sm text-slate-600">
+                  No votes have been submitted for this poll yet.
+                </p>
+              ) : (
+                <div
+                  role="img"
+                  aria-label={`Bar chart of ${managementTotalVotes} votes by eligible menu item`}
+                  className="mt-6 space-y-5"
+                >
+                  {managementOptions.map((option) => {
+                    const votes = option.votes ?? 0;
+                    const share = managementTotalVotes
+                      ? (votes / managementTotalVotes) * 100
+                      : 0;
+                    return (
+                      <div key={option.id}>
+                        <div className="mb-2 flex items-center justify-between gap-4 text-sm">
+                          <span className="truncate font-medium text-slate-700">
+                            {option.name}
+                          </span>
+                          <span className="shrink-0 font-semibold text-slate-900">
+                            {votes} · {share.toFixed(1)}%
+                          </span>
+                        </div>
+                        <div
+                          className="h-4 overflow-hidden rounded-full bg-violet-100"
+                          aria-hidden="true"
+                        >
+                          <div
+                            className="h-full rounded-full bg-gradient-to-r from-indigo-600 to-violet-500 transition-[width] duration-700"
+                            style={{
+                              width: `${votes ? Math.max(2, (votes / maxOptionVotes) * 100) : 0}%`,
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+          )}
 
           <label className="block max-w-md text-sm font-semibold text-slate-700">
             Find a menu item

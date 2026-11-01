@@ -83,6 +83,24 @@ export default function CustomerEntry() {
               </span>
             </span>
           </Link>
+
+          <Link
+            to="/menu-voting"
+            className="entry-from-left entry-delay-7 group flex min-h-52 cursor-pointer flex-col justify-between rounded-2xl border border-white/30 bg-white/10 p-6 text-white shadow-lg shadow-indigo-950/20 backdrop-blur-md transition duration-300 hover:-translate-y-2 hover:scale-[1.02] hover:bg-white/20 hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:p-7"
+          >
+            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/15 text-2xl font-bold text-white">
+              ☑
+            </span>
+            <span>
+              <span className="block text-xl font-bold">Menu Voting</span>
+              <span className="mt-2 block text-sm leading-6 text-indigo-100">
+                Help choose what goes on tomorrow’s menu.
+              </span>
+              <span className="mt-4 inline-block text-sm font-bold text-white transition group-hover:translate-x-1 group-hover:underline">
+                Cast your vote →
+              </span>
+            </span>
+          </Link>
           </section>
 
           <footer className="mt-7">
