@@ -127,7 +127,7 @@ export default function AdminLogin() {
             Forgot password?
           </Link>
           <Link to="/admin/setup" className="font-semibold text-violet-700 hover:underline">
-            First-time restaurant setup
+            Create an owner account
           </Link>
         </div>
 

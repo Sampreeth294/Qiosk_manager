@@ -1241,7 +1241,7 @@ class ReportsAndEngagementApiTests(APITestCase):
         )
         self.assertEqual(invalid_response.status_code, 400)
 
-    def test_menu_vote_rejects_second_vote_for_same_day(self):
+    def test_same_user_can_submit_multiple_menu_votes_for_same_day(self):
         self.client.force_login(self.manager)
         response = self.client.post(
             "/api/menu-votes/",
@@ -1264,9 +1264,12 @@ class ReportsAndEngagementApiTests(APITestCase):
             },
             format="json",
         )
-        self.assertEqual(second.status_code, 409)
-        self.assertEqual(MenuVote.objects.count(), 1)
-        self.assertEqual(MenuVote.objects.get().menu_item_id, self.item_a.id)
+        self.assertEqual(second.status_code, 201)
+        self.assertEqual(MenuVote.objects.count(), 2)
+        self.assertSetEqual(
+            set(MenuVote.objects.values_list("menu_item_id", flat=True)),
+            {self.item_a.id, self.item_b.id},
+        )
 
     def test_food_rating_restricts_duplicate_entries_per_order(self):
         order_item = self.order.items.get(menu_item=self.item_a)
@@ -1399,7 +1402,7 @@ class PublicLiveDisplayAndVotingApiTests(APITestCase):
             ],
         )
 
-    def test_guest_can_vote_once_with_a_signed_browser_cookie(self):
+    def test_multiple_guests_can_vote_from_the_same_browser(self):
         poll = self.client.get(
             "/api/menu-votes/",
             {"restaurant_id": self.restaurant.pk},
@@ -1428,13 +1431,80 @@ class PublicLiveDisplayAndVotingApiTests(APITestCase):
             {"restaurant_id": self.restaurant.pk, "menu_item_id": self.item.pk},
             format="json",
         )
-        self.assertEqual(duplicate.status_code, 409)
-        self.assertEqual(MenuVote.objects.filter(restaurant=self.restaurant).count(), 1)
-        self.assertIsNone(MenuVote.objects.get().user_id)
-        self.assertEqual(
-            MenuVote.objects.get().vote_date,
-            expected_target_date,
+        self.assertEqual(duplicate.status_code, 201)
+        self.assertEqual(MenuVote.objects.filter(restaurant=self.restaurant).count(), 2)
+        self.assertTrue(
+            MenuVote.objects.filter(
+                restaurant=self.restaurant,
+                user__isnull=True,
+                vote_date=expected_target_date,
+            ).exists()
         )
+
+    def test_guest_can_record_not_voting_without_counting_as_dish_vote(self):
+        response = self.client.post(
+            "/api/menu-votes/",
+            {"restaurant_id": self.restaurant.pk, "abstain": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 201)
+        self.assertIsNone(response.json()["menu_item"])
+        self.assertEqual(response.json()["detail"], "Your response has been recorded.")
+
+        self.client.force_login(self.manager)
+        poll = self.client.get(
+            "/api/menu-votes/",
+            {"restaurant_id": self.restaurant.pk, "manage": "true"},
+        )
+        self.assertEqual(poll.status_code, 200)
+        self.assertEqual(poll.json()["total_votes"], 0)
+        self.assertEqual(poll.json()["abstentions"], 1)
+        self.assertIsNone(MenuVote.objects.get().menu_item_id)
+
+    def test_guest_can_like_or_dislike_and_management_shows_separate_counts(self):
+        like = self.client.post(
+            "/api/menu-votes/",
+            {
+                "restaurant_id": self.restaurant.pk,
+                "menu_item_id": self.item.pk,
+                "sentiment": "LIKE",
+            },
+            format="json",
+        )
+        dislike = self.client.post(
+            "/api/menu-votes/",
+            {
+                "restaurant_id": self.restaurant.pk,
+                "menu_item_id": self.item.pk,
+                "sentiment": "DISLIKE",
+            },
+            format="json",
+        )
+        self.assertEqual(like.status_code, 201)
+        self.assertEqual(dislike.status_code, 201)
+
+        self.client.force_login(self.manager)
+        poll = self.client.get(
+            "/api/menu-votes/",
+            {"restaurant_id": self.restaurant.pk, "manage": "true"},
+        )
+        option = poll.json()["options"][0]
+        self.assertEqual(option["votes"], 2)
+        self.assertEqual(option["likes"], 1)
+        self.assertEqual(option["dislikes"], 1)
+
+    def test_guest_vote_rejects_unknown_sentiment(self):
+        response = self.client.post(
+            "/api/menu-votes/",
+            {
+                "restaurant_id": self.restaurant.pk,
+                "menu_item_id": self.item.pk,
+                "sentiment": "MAYBE",
+            },
+            format="json",
+        )
+        self.assertEqual(response.status_code, 400)
+        self.assertFalse(MenuVote.objects.exists())
 
     def test_anonymous_vote_submission_requires_csrf(self):
         client = Client(enforce_csrf_checks=True)
@@ -1635,7 +1705,7 @@ class AccountSetupAndManagementApiTests(APITestCase):
         self.assertEqual(response.status_code, 403)
         self.assertFalse(get_user_model().objects.exists())
 
-    def test_initial_setup_is_one_time_and_creates_owner_atomically(self):
+    def test_public_owner_signup_creates_separate_restaurant_for_each_owner(self):
         available = self.client.get("/api/auth/setup/")
         self.assertTrue(available.json()["available"])
 
@@ -1659,8 +1729,8 @@ class AccountSetupAndManagementApiTests(APITestCase):
         self.assertEqual(membership.role, RestaurantMembership.Role.OWNER)
         self.assertTrue(membership.is_active)
         self.assertEqual(self.client.get("/api/auth/me/").status_code, 200)
-        self.assertFalse(self.client.get("/api/auth/setup/").json()["available"])
-        duplicate = self.client.post(
+        self.assertTrue(self.client.get("/api/auth/setup/").json()["available"])
+        second_signup = self.client.post(
             "/api/auth/setup/",
             {
                 "username": "second-owner",
@@ -1672,8 +1742,38 @@ class AccountSetupAndManagementApiTests(APITestCase):
             },
             format="json",
         )
-        self.assertEqual(duplicate.status_code, 409)
-        self.assertEqual(Restaurant.objects.count(), 1)
+        self.assertEqual(second_signup.status_code, 201)
+        second_owner = get_user_model().objects.get(username="second-owner")
+        second_membership = RestaurantMembership.objects.get(user=second_owner)
+        self.assertEqual(second_membership.role, RestaurantMembership.Role.OWNER)
+        self.assertNotEqual(second_membership.restaurant_id, membership.restaurant_id)
+        self.assertEqual(Restaurant.objects.count(), 2)
+        self.assertEqual(
+            list(
+                Restaurant.objects.filter(
+                    memberships__user=second_owner,
+                    memberships__is_active=True,
+                ).values_list("pk", flat=True)
+            ),
+            [second_membership.restaurant_id],
+        )
+        self.assertTrue(self.client.get("/api/auth/setup/").json()["available"])
+
+    def test_owner_signup_allows_more_than_three_attempts(self):
+        for attempt in range(4):
+            response = self.client.post(
+                "/api/auth/setup/",
+                {
+                    "username": f"owner-attempt-{attempt}",
+                    "email": f"owner-attempt-{attempt}@example.com",
+                    "password": "weak",
+                    "password_confirm": "weak",
+                    "restaurant_name": "Attempt Restaurant",
+                    "address": "1 Attempt Street",
+                },
+                format="json",
+            )
+            self.assertEqual(response.status_code, 400)
 
     def test_initial_setup_rejects_mismatched_and_weak_passwords(self):
         mismatch = self.client.post(

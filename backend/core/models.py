@@ -772,6 +772,10 @@ class OrderItem(models.Model):
 
 
 class MenuVote(models.Model):
+    class Sentiment(models.TextChoices):
+        LIKE = "LIKE", "Like"
+        DISLIKE = "DISLIKE", "Dislike"
+
     restaurant = models.ForeignKey(
         Restaurant,
         on_delete=models.CASCADE,
@@ -781,6 +785,14 @@ class MenuVote(models.Model):
         MenuItem,
         on_delete=models.CASCADE,
         related_name="votes",
+        blank=True,
+        null=True,
+    )
+    sentiment = models.CharField(
+        max_length=7,
+        choices=Sentiment.choices,
+        blank=True,
+        null=True,
     )
     user = models.ForeignKey(
         settings.AUTH_USER_MODEL,
@@ -799,15 +811,15 @@ class MenuVote(models.Model):
 
     class Meta:
         constraints = [
-            models.UniqueConstraint(
-                fields=["restaurant", "user", "vote_date"],
-                condition=Q(user__isnull=False),
-                name="unique_user_vote_per_restaurant_day",
-            ),
-            models.UniqueConstraint(
-                fields=["restaurant", "anonymous_key", "vote_date"],
-                condition=Q(anonymous_key__isnull=False),
-                name="unique_anonymous_vote_per_restaurant_day",
+            models.CheckConstraint(
+                condition=(
+                    Q(menu_item__isnull=True, sentiment__isnull=True)
+                    | Q(
+                        menu_item__isnull=False,
+                        sentiment__in=["LIKE", "DISLIKE"],
+                    )
+                ),
+                name="menu_vote_sentiment_matches_item",
             ),
             models.CheckConstraint(
                 condition=(
@@ -820,7 +832,9 @@ class MenuVote(models.Model):
         ordering = ["-created_at"]
 
     def __str__(self):
-        return f"{self.user} voted for {self.menu_item}"
+        if self.menu_item_id is None:
+            return f"{self.user or 'Guest'} chose not to vote"
+        return f"{self.user or 'Guest'} voted for {self.menu_item}"
 
 
 class FoodRating(models.Model):

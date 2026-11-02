@@ -73,17 +73,7 @@ def _password_errors(password, user):
 @csrf_protect
 def initial_setup_view(request):
     if request.method == "GET":
-        state = RestaurantSetupState.objects.filter(pk=1).first()
-        return Response({
-            "available": (
-                state is not None
-                and state.completed_at is None
-                and not get_user_model().objects.exists()
-            ),
-        })
-
-    if _limited(request, "initial-setup", limit=3):
-        return Response({"detail": "Too many setup attempts. Try again later."}, status=429)
+        return Response({"available": True})
 
     username = request.data.get("username")
     email = request.data.get("email")
@@ -135,11 +125,6 @@ def initial_setup_view(request):
         with transaction.atomic():
             state, _ = RestaurantSetupState.objects.get_or_create(pk=1)
             state = RestaurantSetupState.objects.select_for_update().get(pk=state.pk)
-            if state.completed_at is not None or get_user_model().objects.exists():
-                return Response(
-                    {"detail": "Initial restaurant setup is already complete."},
-                    status=status.HTTP_409_CONFLICT,
-                )
             user = get_user_model().objects.create_user(
                 username=username.strip(),
                 email=email.strip().lower(),
@@ -161,7 +146,7 @@ def initial_setup_view(request):
             login(request, user)
     except IntegrityError:
         return Response(
-            {"detail": "Initial setup could not be completed. Check the account details and try again."},
+            {"detail": "Owner signup could not be completed. Check the account details and try again."},
             status=status.HTTP_409_CONFLICT,
         )
 

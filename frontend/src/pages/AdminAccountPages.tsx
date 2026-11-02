@@ -66,11 +66,11 @@ export function InitialSetupPage() {
   }
 
   return (
-    <AccountFrame title="Set up your restaurant" description="Create the first owner account and restaurant. This setup is permanently disabled after the first account is created.">
+    <AccountFrame title="Create your owner account" description="Sign up as a restaurant owner and create a restaurant workspace. Each owner account manages its own restaurant.">
       <AccountMessages error={error} success="" />
       {available === false ? (
         <div className="space-y-4">
-          <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-700">Initial setup is already complete. Ask a restaurant owner to invite you.</p>
+          <p className="rounded-xl bg-slate-50 p-4 text-sm text-slate-700">Unable to open owner signup. Please try again later.</p>
           <Link className="font-semibold text-violet-700 hover:underline" to="/admin/login">Go to staff sign in</Link>
         </div>
       ) : (

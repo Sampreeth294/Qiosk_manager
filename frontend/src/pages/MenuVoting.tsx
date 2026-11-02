@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { apiRequest } from "../api/apiClient";
 
 type Restaurant = { id: number; name: string };
@@ -10,6 +11,8 @@ type VoteOption = {
   image_url?: string | null;
   price?: string | number;
   votes?: number;
+  likes?: number;
+  dislikes?: number;
   eligible?: boolean;
 };
 type PublicPoll = {
@@ -17,7 +20,6 @@ type PublicPoll = {
   period: { vote_date: string; starts_at: string; ends_at: string; start_time: string; end_time: string; is_open: boolean };
   results_visible: boolean;
   total_votes: number | null;
-  my_vote: number | null;
   options: VoteOption[];
 };
 type AdminPoll = {
@@ -29,12 +31,25 @@ type AdminPoll = {
   publish_results: boolean;
   use_all_active_items: boolean;
   total_votes: number;
+  abstentions: number;
   options: VoteOption[];
 };
 
 type MenuVotingProps = { management?: boolean };
+type VoteSentiment = "LIKE" | "DISLIKE";
+
+function formatVoteDate(date: string) {
+  const [year, month, day] = date.split("-").map(Number);
+  return new Intl.DateTimeFormat("en-IN", {
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(new Date(Date.UTC(year, month - 1, day)));
+}
 
 export default function MenuVoting({ management = false }: MenuVotingProps) {
+  const navigate = useNavigate();
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [restaurantId, setRestaurantId] = useState<number | null>(() => {
     const rawId = new URLSearchParams(window.location.search).get("restaurant_id");
@@ -42,6 +57,8 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
   });
   const [poll, setPoll] = useState<PublicPoll | AdminPoll | null>(null);
   const [selectedItem, setSelectedItem] = useState<number | null>(null);
+  const [selectedSentiment, setSelectedSentiment] = useState<VoteSentiment | null>(null);
+  const [selectedAbstain, setSelectedAbstain] = useState(false);
   const [eligibleItemIds, setEligibleItemIds] = useState<number[]>([]);
   const [startsAt, setStartsAt] = useState("00:00");
   const [endsAt, setEndsAt] = useState("23:59");
@@ -82,10 +99,6 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
       .then((result) => {
         if (!active) return;
         setPoll(result);
-        if ("my_vote" in result && result.my_vote) {
-          setSelectedItem(result.my_vote);
-          setNotice("Your vote has already been recorded for tomorrow's menu.");
-        }
         if ("vote_date" in result) {
           setEligibleItemIds(result.options.filter((option) => option.eligible).map((option) => option.id));
           setStartsAt(result.starts_at);
@@ -133,31 +146,32 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
   const selectedOption = options.find((option) => option.id === selectedItem);
 
   async function submitVote() {
-    if (!restaurantId || selectedItem === null || submitting) return;
+    if (
+      !restaurantId ||
+      (!selectedAbstain && (selectedItem === null || selectedSentiment === null)) ||
+      submitting
+    ) return;
     setSubmitting(true);
     setError("");
     try {
-      const response = await apiRequest<{ menu_item: number; menu_item_name: string; detail: string }>(
+      const response = await apiRequest<{ menu_item: number | null; menu_item_name: string | null; sentiment: VoteSentiment | null; detail: string }>(
         `/menu-votes/?restaurant_id=${restaurantId}`,
         {
           method: "POST",
-          body: JSON.stringify({ restaurant_id: restaurantId, menu_item_id: selectedItem }),
+          body: JSON.stringify({
+            restaurant_id: restaurantId,
+            ...(selectedAbstain
+              ? { abstain: true }
+              : { menu_item_id: selectedItem, sentiment: selectedSentiment }),
+          }),
         },
       );
-      setSelectedItem(response.menu_item);
+      setSelectedItem(null);
       setNotice(response.detail);
-      setPoll((current) =>
-        current && "my_vote" in current
-          ? { ...current, my_vote: response.menu_item }
-          : current,
-      );
+      navigate("/");
     } catch (requestError) {
       const message = requestError instanceof Error ? requestError.message : "Unable to submit your vote.";
-      if (message.toLowerCase().includes("already voted")) {
-        setNotice("You have already voted for tomorrow's menu.");
-      } else {
-        setError(message);
-      }
+      setError(message);
     } finally {
       setSubmitting(false);
     }
@@ -231,6 +245,7 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
               setNotice("");
               setRestaurantId(Number(event.target.value));
               setSelectedItem(null);
+              setSelectedAbstain(false);
             }}
             disabled={!restaurants.length}
           >
@@ -264,7 +279,7 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
             <div>
               <p className="text-xs font-bold uppercase tracking-wide text-violet-800">Tomorrow's voting period</p>
               <p className="mt-1 text-lg font-bold text-violet-950">
-                {new Date(("period" in poll ? poll.period.vote_date : poll.vote_date) + "T00:00:00").toLocaleDateString()}
+                {formatVoteDate("period" in poll ? poll.period.vote_date : poll.vote_date)}
               </p>
               <p className="mt-1 text-sm text-violet-900">{periodDescription}</p>
               <p className="mt-1 text-sm text-violet-900">
@@ -297,7 +312,7 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
                     Votes by menu item
                   </h2>
                   <p className="mt-1 text-sm text-slate-500">
-                    Tomorrow’s poll · {new Intl.NumberFormat("en-IN").format(managementTotalVotes)} total votes
+                    Tomorrow’s poll · {new Intl.NumberFormat("en-IN").format(managementTotalVotes)} votes · {new Intl.NumberFormat("en-IN").format("abstentions" in poll ? poll.abstentions : 0)} opted out
                   </p>
                 </div>
                 <span className="rounded-xl bg-violet-50 px-4 py-2 text-sm font-semibold text-violet-800">
@@ -367,6 +382,8 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
             <section className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
               {filteredOptions.map((option) => {
                 const isSelected = selectedItem === option.id;
+                const isLiked = isSelected && selectedSentiment === "LIKE";
+                const isDisliked = isSelected && selectedSentiment === "DISLIKE";
                 return (
                   <article
                     key={option.id}
@@ -384,7 +401,7 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
                     {management ? (
                       <p className="mt-4 rounded-lg bg-slate-100 px-3 py-2 text-sm font-semibold">
                         <label className="flex items-center justify-between gap-3">
-                          <span>{option.votes ?? 0} vote{option.votes === 1 ? "" : "s"}</span>
+                          <span>👍 {option.likes ?? 0} · 👎 {option.dislikes ?? 0}</span>
                           <input
                             type="checkbox"
                             checked={useAllActiveItems || eligibleItemIds.includes(option.id)}
@@ -401,14 +418,36 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
                         </label>
                       </p>
                     ) : (
-                      <button
-                        type="button"
-                        disabled={!periodOpen || selectedItem !== null}
-                        onClick={() => setSelectedItem(option.id)}
-                        className={`mt-4 w-full rounded-xl px-4 py-3 text-sm font-bold ${isSelected ? "bg-emerald-100 text-emerald-900" : "bg-violet-600 text-white hover:bg-violet-700 disabled:cursor-not-allowed disabled:bg-slate-200 disabled:text-slate-500"}`}
-                      >
-                        {isSelected ? "Selected" : "Choose this item"}
-                      </button>
+                      <div className="mt-4 grid grid-cols-2 gap-3">
+                        <button
+                          type="button"
+                          disabled={!periodOpen || (selectedItem !== null && !isSelected) || selectedAbstain}
+                          onClick={() => {
+                            setSelectedItem(option.id);
+                            setSelectedSentiment("LIKE");
+                          }}
+                          aria-label={`Like ${option.name}`}
+                          aria-pressed={isLiked}
+                          className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${isLiked ? "bg-emerald-100 text-emerald-900 ring-2 ring-emerald-400" : "bg-slate-100 text-slate-700 hover:bg-emerald-50"}`}
+                        >
+                          <span className="text-2xl" aria-hidden="true">👍</span>
+                          <span>Like</span>
+                        </button>
+                        <button
+                          type="button"
+                          disabled={!periodOpen || (selectedItem !== null && !isSelected) || selectedAbstain}
+                          onClick={() => {
+                            setSelectedItem(option.id);
+                            setSelectedSentiment("DISLIKE");
+                          }}
+                          aria-label={`Dislike ${option.name}`}
+                          aria-pressed={isDisliked}
+                          className={`flex items-center justify-center gap-2 rounded-xl px-3 py-3 text-sm font-bold transition disabled:cursor-not-allowed disabled:opacity-50 ${isDisliked ? "bg-rose-100 text-rose-900 ring-2 ring-rose-400" : "bg-slate-100 text-slate-700 hover:bg-rose-50"}`}
+                        >
+                          <span className="text-2xl" aria-hidden="true">👎</span>
+                          <span>Dislike</span>
+                        </button>
+                      </div>
                     )}
                   </article>
                 );
@@ -420,10 +459,26 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
             </p>
           )}
 
-          {!management && selectedItem !== null && periodOpen && !("my_vote" in poll && poll.my_vote) && (
+          {!management && options.length > 0 && periodOpen && (
+            <button
+              type="button"
+              disabled={selectedItem !== null || selectedAbstain}
+              onClick={() => setSelectedAbstain(true)}
+              aria-pressed={selectedAbstain}
+              className={`flex w-full items-center justify-center gap-2 rounded-xl border px-4 py-3 text-sm font-bold transition disabled:cursor-not-allowed ${selectedAbstain ? "border-emerald-300 bg-emerald-50 text-emerald-900" : "border-slate-300 bg-white text-slate-700 hover:bg-slate-50 disabled:opacity-50"}`}
+            >
+              <span className="text-2xl" aria-hidden="true">🙅</span>
+              <span>{selectedAbstain ? "Not voting selected" : "I don't want to vote"}</span>
+            </button>
+          )}
+
+          {!management && (selectedItem !== null || selectedAbstain) && periodOpen && (
             <div className="flex flex-col items-start justify-between gap-3 rounded-2xl border border-slate-200 bg-white p-5 sm:flex-row sm:items-center">
               <p className="text-sm text-slate-700">
-                Your selection: <strong>{selectedOption?.name}</strong>
+                Your selection: <strong>{selectedAbstain ? "Not voting" : selectedOption?.name}</strong>
+                {!selectedAbstain && selectedSentiment && (
+                  <span> · {selectedSentiment === "LIKE" ? "👍 Like" : "👎 Dislike"}</span>
+                )}
               </p>
               <button
                 type="button"
@@ -443,7 +498,8 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
               <div className="mt-4 space-y-3">
                 {options.map((option) => (
                   <p key={option.id} className="flex justify-between gap-3 text-sm">
-                    <span>{option.name}</span><strong>{option.votes ?? 0}</strong>
+                    <span>{option.name}</span>
+                    <strong>👍 {option.likes ?? 0} · 👎 {option.dislikes ?? 0}</strong>
                   </p>
                 ))}
               </div>
@@ -486,7 +542,7 @@ export default function MenuVoting({ management = false }: MenuVotingProps) {
       )}
       {!management && (
         <p className="text-xs text-slate-500">
-          Anonymous vote duplication is prevented with a signed, same-site browser cookie. Clearing cookies or voting from another browser can bypass this limit.
+          Multiple people can vote from the same device. Submit another vote for each person.
         </p>
       )}
     </main>

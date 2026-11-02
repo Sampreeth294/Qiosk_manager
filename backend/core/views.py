@@ -1029,6 +1029,7 @@ def analytics_summary(request):
             "votes_for_tomorrow": MenuVote.objects.filter(
                 restaurant__in=restaurant_queryset,
                 vote_date=voting_target_date,
+                menu_item__isnull=False,
             ).count(),
         },
         "rating_summary": {
@@ -1115,6 +1116,7 @@ def menu_vote_view(request):
                 restaurant=restaurant,
                 vote_date=target_date,
             ).select_related("menu_item")
+            dish_votes = votes.filter(menu_item__isnull=False)
             return Response(
                 {
                     "restaurant": {"id": restaurant.pk, "name": restaurant.name},
@@ -1124,7 +1126,8 @@ def menu_vote_view(request):
                     "ends_at": period.ends_at.strftime("%H:%M"),
                     "publish_results": period.publish_results,
                     "use_all_active_items": period.use_all_active_items,
-                    "total_votes": votes.count(),
+                    "total_votes": dish_votes.count(),
+                    "abstentions": votes.filter(menu_item__isnull=True).count(),
                     "options": [
                         {
                             "id": item.pk,
@@ -1133,6 +1136,14 @@ def menu_vote_view(request):
                             "image_url": request.build_absolute_uri(item.image.url) if item.image else None,
                             "eligible": options.filter(pk=item.pk).exists(),
                             "votes": votes.filter(menu_item=item).count(),
+                            "likes": votes.filter(
+                                menu_item=item,
+                                sentiment=MenuVote.Sentiment.LIKE,
+                            ).count(),
+                            "dislikes": votes.filter(
+                                menu_item=item,
+                                sentiment=MenuVote.Sentiment.DISLIKE,
+                            ).count(),
                         }
                         for item in eligible_options
                     ],
@@ -1144,11 +1155,6 @@ def menu_vote_view(request):
         user = request.user if request.user.is_authenticated else None
         if user is None:
             voter_key, cookie_value = _anonymous_voter_key(request, create=True)
-        existing_vote = MenuVote.objects.filter(
-            restaurant=restaurant,
-            vote_date=target_date,
-            **({"user": user} if user else {"anonymous_key": voter_key}),
-        ).first()
         response = Response(
             {
                 "restaurant": {"id": restaurant.pk, "name": restaurant.name},
@@ -1171,11 +1177,11 @@ def menu_vote_view(request):
                     MenuVote.objects.filter(
                         restaurant=restaurant,
                         vote_date=target_date,
+                        menu_item__isnull=False,
                     ).count()
                     if period.publish_results and not voting_is_open
                     else None
                 ),
-                "my_vote": existing_vote.menu_item_id if existing_vote else None,
                 "options": [
                     {
                         "id": item.pk,
@@ -1191,6 +1197,24 @@ def menu_vote_view(request):
                                     vote_date=target_date,
                                     menu_item=item,
                                 ).count()
+                            }
+                            if period.publish_results and not voting_is_open
+                            else {}
+                        ),
+                        **(
+                            {
+                                "likes": MenuVote.objects.filter(
+                                    restaurant=restaurant,
+                                    vote_date=target_date,
+                                    menu_item=item,
+                                    sentiment=MenuVote.Sentiment.LIKE,
+                                ).count(),
+                                "dislikes": MenuVote.objects.filter(
+                                    restaurant=restaurant,
+                                    vote_date=target_date,
+                                    menu_item=item,
+                                    sentiment=MenuVote.Sentiment.DISLIKE,
+                                ).count(),
                             }
                             if period.publish_results and not voting_is_open
                             else {}
@@ -1279,21 +1303,34 @@ def menu_vote_view(request):
             "use_all_active_items": period.use_all_active_items,
         })
 
-    menu_item_id = request.data.get("menu_item_id")
-    if not menu_item_id:
-        return Response({"detail": "menu_item_id is required."}, status=status.HTTP_400_BAD_REQUEST)
-    if not str(menu_item_id).isdigit():
-        return Response(
-            {"detail": "menu_item_id must be a positive integer."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+    abstain = request.data.get("abstain", False)
+    if not isinstance(abstain, bool):
+        return Response({"detail": "abstain must be a boolean."}, status=status.HTTP_400_BAD_REQUEST)
+    if abstain:
+        menu_item = None
+        sentiment = None
+    else:
+        menu_item_id = request.data.get("menu_item_id")
+        if not menu_item_id:
+            return Response({"detail": "menu_item_id is required."}, status=status.HTTP_400_BAD_REQUEST)
+        if not str(menu_item_id).isdigit():
+            return Response(
+                {"detail": "menu_item_id must be a positive integer."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-    menu_item = options.filter(pk=menu_item_id).first()
-    if menu_item is None:
-        return Response(
-            {"detail": "This menu item is not eligible for the active voting period."},
-            status=status.HTTP_400_BAD_REQUEST,
-        )
+        menu_item = options.filter(pk=menu_item_id).first()
+        if menu_item is None:
+            return Response(
+                {"detail": "This menu item is not eligible for the active voting period."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        sentiment = request.data.get("sentiment", MenuVote.Sentiment.LIKE)
+        if sentiment not in MenuVote.Sentiment.values:
+            return Response(
+                {"detail": "sentiment must be LIKE or DISLIKE."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
     if not voting_is_open:
         return Response(
             {"detail": "Voting is closed for this period."},
@@ -1306,33 +1343,26 @@ def menu_vote_view(request):
     if user is None:
         voter_key, cookie_value = _anonymous_voter_key(request, create=True)
     identity = {"user": user} if user else {"anonymous_key": voter_key}
-    try:
-        with transaction.atomic():
-            vote = MenuVote.objects.create(
-                restaurant=restaurant,
-                menu_item=menu_item,
-                vote_date=target_date,
-                **identity,
-            )
-    except IntegrityError:
-        if not MenuVote.objects.filter(
-            restaurant=restaurant,
-            vote_date=target_date,
-            **identity,
-        ).exists():
-            raise
-        return Response(
-            {"detail": "You have already voted in this restaurant's active poll."},
-            status=status.HTTP_409_CONFLICT,
-        )
+    vote = MenuVote.objects.create(
+        restaurant=restaurant,
+        menu_item=menu_item,
+        sentiment=sentiment,
+        vote_date=target_date,
+        **identity,
+    )
 
     response = Response(
         {
             "id": vote.pk,
             "menu_item": vote.menu_item_id,
-            "menu_item_name": vote.menu_item.name,
+            "menu_item_name": vote.menu_item.name if vote.menu_item_id else None,
+            "sentiment": vote.sentiment,
             "vote_date": vote.vote_date,
-            "detail": "Your vote has been recorded.",
+            "detail": (
+                "Your response has been recorded."
+                if abstain
+                else f"Your {vote.sentiment.lower()} has been recorded."
+            ),
         },
         status=status.HTTP_201_CREATED,
     )
