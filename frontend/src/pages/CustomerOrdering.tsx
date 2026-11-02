@@ -337,7 +337,7 @@ export default function CustomerOrdering() {
               <h1 className="text-lg font-bold">
                 {restaurants.find(
                   (restaurant) => restaurant.id === selectedRestaurantId,
-                )?.name ?? "Qiosk Ordering"}
+                )?.name ?? "Kiosk Ordering"}
               </h1>
               <p className="text-xs text-slate-500">
                 Fresh food, made with care
@@ -729,7 +729,7 @@ export default function CustomerOrdering() {
             className="my-auto w-full max-w-sm rounded-lg bg-white p-6 font-mono text-sm text-slate-900 shadow-2xl"
           >
             <header className="border-b border-dashed border-slate-400 pb-4 text-center">
-              <p className="text-xs uppercase tracking-widest">Qiosk Manager</p>
+              <p className="text-xs uppercase tracking-widest">Kiosk Manager</p>
               <h2 id="order-receipt-title" className="mt-2 text-lg font-bold">
                 Order Receipt
               </h2>

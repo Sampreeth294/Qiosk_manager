@@ -126,7 +126,7 @@ export default function Reports() {
   function exportCsv() {
     if (!report) return;
     const rows: (string | number)[][] = [
-      ["Report", "Qiosk Manager Sales Report"],
+      ["Report", "Kiosk Manager Sales Report"],
       ["Restaurant", restaurants.find((item) => item.id === restaurantId)?.name ?? ""],
       ["Period", `${report.period.start_date} to ${report.period.end_date}`],
       ["Revenue", report.summary.revenue],
@@ -147,7 +147,7 @@ export default function Reports() {
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv;charset=utf-8;" }));
     const link = document.createElement("a");
     link.href = url;
-    link.download = `qiosk-report-${period.toLowerCase().replace(" ", "-")}.csv`;
+    link.download = `kiosk-report-${period.toLowerCase().replace(" ", "-")}.csv`;
     document.body.appendChild(link);
     link.click();
     link.remove();

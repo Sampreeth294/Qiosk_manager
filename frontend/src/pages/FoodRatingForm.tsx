@@ -121,8 +121,8 @@ export default function FoodRatingForm() {
       <div className="w-full max-w-2xl space-y-6">
         <header className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
           <div className="flex items-center justify-between gap-3">
-            <Link to="/" aria-label="Qiosk Manager home" className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-600 text-xl font-black text-white">
-              Q
+            <Link to="/" aria-label="Kiosk Manager home" className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-600 text-xl font-black text-white">
+              K
             </Link>
             <Link to="/" className="text-sm font-semibold text-violet-700 hover:underline">
               Customer home

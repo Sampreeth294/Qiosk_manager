@@ -9,7 +9,7 @@ function AccountFrame({ title, description, children }: AccountFormProps & { chi
     <main className="flex min-h-screen items-center justify-center bg-slate-50 p-4 text-slate-900">
       <section className="w-full max-w-lg space-y-6 rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
         <header>
-          <p className="text-sm font-bold uppercase tracking-[0.18em] text-violet-700">Qiosk Manager</p>
+          <p className="text-sm font-bold uppercase tracking-[0.18em] text-violet-700">Kiosk Manager</p>
           <h1 className="mt-2 text-2xl font-bold">{title}</h1>
           <p className="mt-2 text-sm text-slate-600">{description}</p>
         </header>

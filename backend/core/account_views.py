@@ -212,7 +212,7 @@ def password_reset_request_view(request):
         reset_url = f"{frontend_url.rstrip('/')}/admin/password-reset/confirm?{query}"
         try:
             send_mail(
-                "Reset your Qiosk Manager password",
+                "Reset your Kiosk Manager password",
                 f"Use this link to reset your password. It expires in {settings.PASSWORD_RESET_TIMEOUT // 3600} hours:\n\n{reset_url}",
                 settings.DEFAULT_FROM_EMAIL,
                 [user.email],
@@ -403,7 +403,7 @@ def restaurant_users_view(request):
             frontend_url = getattr(settings, "FRONTEND_BASE_URL", "http://127.0.0.1:5173")
             accept_url = f"{frontend_url.rstrip('/')}/admin/invite/{token}"
             send_mail(
-                "You are invited to Qiosk Manager",
+                "You are invited to Kiosk Manager",
                 f"Accept your invitation and set your password within 24 hours:\n\n{accept_url}",
                 settings.DEFAULT_FROM_EMAIL,
                 [user.email],

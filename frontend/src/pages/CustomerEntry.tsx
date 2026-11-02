@@ -21,10 +21,10 @@ export default function CustomerEntry() {
           <header className="mb-9">
             <div className="entry-from-left entry-delay-1 flex items-center gap-3">
               <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-white/30 bg-white text-xl font-black text-violet-700 shadow-lg shadow-indigo-950/20">
-                Q
+                K
               </div>
               <p className="text-sm font-bold uppercase tracking-[0.2em] text-white">
-                Qiosk Manager
+                Kiosk Manager
               </p>
             </div>
             <p className="entry-from-left entry-delay-2 mt-12 text-xs font-bold uppercase tracking-[0.25em] text-violet-100">
@@ -123,7 +123,7 @@ export default function CustomerEntry() {
                 <span className="absolute left-1/2 top-2 h-1 w-12 -translate-x-1/2 rounded-full bg-white/40" />
               </div>
               <div className="px-5 pb-5 pt-14">
-                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-violet-700 text-lg font-black text-white shadow-md shadow-violet-700/25">Q</div>
+                <div className="mx-auto flex h-10 w-10 items-center justify-center rounded-xl bg-violet-700 text-lg font-black text-white shadow-md shadow-violet-700/25">K</div>
                 <p className="mt-3 text-center text-[10px] font-bold uppercase tracking-[0.18em] text-violet-800">Welcome</p>
                 <div className="mt-4 h-24 rounded-xl bg-gradient-to-br from-indigo-700 to-violet-600 p-3 shadow-lg shadow-violet-900/25">
                   <div className="h-full w-2/3 rounded-lg border border-white/40 bg-white/15" />

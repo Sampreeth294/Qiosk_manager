@@ -351,12 +351,12 @@ function AdminLayout() {
         <div className="border-b border-slate-800 px-6 py-6">
           <div className="flex items-center gap-3">
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-600 text-xl font-bold">
-              Q
+              K
             </div>
 
             <div>
               <h1 className="text-lg font-bold tracking-tight">
-                Qiosk Manager
+                Kiosk Manager
               </h1>
               <p className="mt-1 text-xs text-slate-400">
                 Restaurant operations
@@ -444,7 +444,7 @@ function AdminLayout() {
           <div className="flex items-center justify-between gap-4">
             <div>
               <div className="flex items-center gap-2 text-xs text-slate-400">
-                <span>Qiosk Manager</span>
+                <span>Kiosk Manager</span>
                 <span>/</span>
                 <span className="font-medium text-violet-600">
                   {activePage}
@@ -476,7 +476,7 @@ function AdminLayout() {
         </div>
 
         <footer className="px-8 pb-6 text-center text-xs text-slate-400">
-          Qiosk Manager · Restaurant Management System
+          Kiosk Manager · Restaurant Management System
         </footer>
       </main>
     </div>

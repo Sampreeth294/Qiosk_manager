@@ -211,7 +211,7 @@ export default function Restaurants() {
         {/* Page heading */}
         <header>
           <p className="text-sm font-semibold uppercase tracking-wider text-indigo-600">
-            Qiosk Manager
+            Kiosk Manager
           </p>
 
           <h1 className="mt-2 text-3xl font-bold">

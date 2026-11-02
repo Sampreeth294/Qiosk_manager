@@ -186,7 +186,7 @@ def _create_restaurant_notification(restaurant_id, event_type, title, message, r
 def health_check(request):
     return Response({
         "success": True,
-        "message": "Qiosk API is running successfully.",
+        "message": "Kiosk API is running successfully.",
     })
 
 

@@ -423,7 +423,7 @@ export default function POS() {
           </style>
         </head>
         <body>
-          <h1>Qiosk Manager</h1>
+          <h1>Kiosk Manager</h1>
           <p class="muted">Order receipt</p>
           <p>Order: ${safe(receipt.display_order_number ?? receipt.order_number)}</p>
           <p>Restaurant: ${safe(receipt.restaurant_name)}</p>
