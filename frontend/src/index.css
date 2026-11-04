@@ -1,26 +1,134 @@
-
 @import "tailwindcss";
 
 :root {
-  font-family: Inter, system-ui, sans-serif;
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   color: #1f2937;
-  background: #f8fafc;
+  background: #0f172a;
 }
 
 body {
   margin: 0;
   min-width: 320px;
   min-height: 100vh;
+  color: #f8fafc;
+  background: #0b0f19;
+  -webkit-font-smoothing: antialiased;
 }
 
-@keyframes kiosk-float {
-  0%,
-  100% {
-    translate: 0 0;
+/* Background image presets from Canteen theme */
+.bg-canteen-home {
+  background: linear-gradient(rgba(11, 15, 25, 0.72), rgba(11, 15, 25, 0.86)),
+              url('/images/home_bg.jpg') no-repeat center center fixed;
+  background-size: cover;
+}
+
+.bg-canteen-order {
+  background: linear-gradient(rgba(15, 23, 42, 0.78), rgba(11, 15, 25, 0.88)),
+              url('/images/canteen_blurred.jpg') no-repeat center center fixed;
+  background-size: cover;
+}
+
+.bg-canteen-payment {
+  background: linear-gradient(rgba(15, 23, 42, 0.82), rgba(11, 15, 25, 0.92)),
+              url('/images/payment_bg.jpg') no-repeat center center fixed;
+  background-size: cover;
+}
+
+.bg-canteen-checkout {
+  background: linear-gradient(rgba(15, 23, 42, 0.82), rgba(11, 15, 25, 0.92)),
+              url('/images/checkout_bg.jpg') no-repeat center center fixed;
+  background-size: cover;
+}
+
+.bg-canteen-success {
+  background: linear-gradient(rgba(15, 23, 42, 0.8), rgba(11, 15, 25, 0.9)),
+              url('/images/success_bg.jpg') no-repeat center center fixed;
+  background-size: cover;
+}
+
+.bg-canteen-login {
+  background: linear-gradient(rgba(15, 23, 42, 0.78), rgba(11, 15, 25, 0.88)),
+              url('/images/login_bg.jpg') no-repeat center center fixed;
+  background-size: cover;
+}
+
+/* 10-Foot Distance Kiosk Utilities */
+.kiosk-text-shadow {
+  text-shadow: 0 2px 10px rgba(0, 0, 0, 0.85), 0 1px 3px rgba(0, 0, 0, 0.9);
+}
+
+.kiosk-title-shadow {
+  text-shadow: 0 3px 16px rgba(0, 0, 0, 0.9), 0 1px 4px rgba(0, 0, 0, 0.8);
+}
+
+.kiosk-glow-amber {
+  text-shadow: 0 0 20px rgba(251, 191, 36, 0.75), 0 0 40px rgba(251, 191, 36, 0.4);
+}
+
+.kiosk-glow-emerald {
+  text-shadow: 0 0 20px rgba(52, 211, 153, 0.75), 0 0 40px rgba(52, 211, 153, 0.4);
+}
+
+/* High-visibility glowing token */
+@keyframes token-pulse-glow {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 25px rgba(250, 204, 21, 0.65), 0 0 50px rgba(250, 204, 21, 0.35);
   }
   50% {
-    translate: 0 -12px;
+    transform: scale(1.03);
+    box-shadow: 0 0 45px rgba(250, 204, 21, 0.95), 0 0 75px rgba(250, 204, 21, 0.6);
   }
+}
+
+.kiosk-token-glow {
+  animation: token-pulse-glow 1.8s ease-in-out infinite;
+}
+
+/* Audio mic pulse when listening */
+@keyframes voice-listen-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.7);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 14px rgba(239, 68, 68, 0);
+    transform: scale(1.08);
+  }
+}
+
+.voice-listening {
+  animation: voice-listen-pulse 1.2s infinite;
+}
+
+/* Thermal receipt styling for print */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  #thermal-receipt,
+  #thermal-receipt * {
+    visibility: visible;
+  }
+  #thermal-receipt {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    max-width: 80mm;
+    margin: 0 auto;
+    padding: 12px;
+    background: #ffffff !important;
+    color: #000000 !important;
+    font-family: monospace;
+    font-size: 13px;
+  }
+}
+
+/* Slide in animations */
+@keyframes kiosk-float {
+  0%, 100% { translate: 0 0; }
+  50% { translate: 0 -12px; }
 }
 
 @keyframes entry-slide-left {
@@ -68,47 +176,16 @@ body {
   animation-name: entry-slide-right;
 }
 
-.entry-delay-1,
-.word-delay-1 {
-  animation-delay: 140ms;
-}
-
-.entry-delay-2,
-.word-delay-2 {
-  animation-delay: 300ms;
-}
-
-.word-delay-3 {
-  animation-delay: 460ms;
-}
-
-.word-delay-4 {
-  animation-delay: 620ms;
-}
-
-.word-delay-5 {
-  animation-delay: 780ms;
-}
-
-.word-delay-6 {
-  animation-delay: 940ms;
-}
-
-.entry-delay-4 {
-  animation-delay: 850ms;
-}
-
-.entry-delay-5 {
-  animation-delay: 1050ms;
-}
-
-.entry-delay-6 {
-  animation-delay: 1250ms;
-}
-
-.entry-delay-7 {
-  animation-delay: 1450ms;
-}
+.entry-delay-1, .word-delay-1 { animation-delay: 140ms; }
+.entry-delay-2, .word-delay-2 { animation-delay: 300ms; }
+.word-delay-3 { animation-delay: 460ms; }
+.word-delay-4 { animation-delay: 620ms; }
+.word-delay-5 { animation-delay: 780ms; }
+.word-delay-6 { animation-delay: 940ms; }
+.entry-delay-4 { animation-delay: 850ms; }
+.entry-delay-5 { animation-delay: 1050ms; }
+.entry-delay-6 { animation-delay: 1250ms; }
+.entry-delay-7 { animation-delay: 1450ms; }
 
 .kiosk-float {
   animation: kiosk-float 7s ease-in-out infinite;
@@ -119,7 +196,9 @@ body {
   .entry-from-left,
   .entry-from-right,
   .word-from-left,
-  .word-from-right {
+  .word-from-right,
+  .kiosk-token-glow,
+  .voice-listening {
     animation: none;
   }
 }

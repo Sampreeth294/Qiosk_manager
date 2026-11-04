@@ -6,10 +6,20 @@ function getCsrfCookie(): string {
     .split("; ")
     .find((entry) => entry.startsWith("csrftoken="));
 
-  if (!cookie) {
-    throw new Error("Unable to read the CSRF cookie. Please sign in again.");
+  if (cookie) {
+    return decodeURIComponent(cookie.slice("csrftoken=".length));
   }
-  return decodeURIComponent(cookie.slice("csrftoken=".length));
+
+  const token = document.cookie
+    .split(";")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith("csrftoken="));
+
+  if (token) {
+    return decodeURIComponent(token.slice("csrftoken=".length));
+  }
+
+  throw new Error("Unable to read the CSRF cookie. Please sign in again.");
 }
 
 async function csrfToken(): Promise<string> {

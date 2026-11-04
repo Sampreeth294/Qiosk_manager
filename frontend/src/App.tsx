@@ -345,11 +345,12 @@ function AdminLayout() {
   }
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-900">
+    <div className="min-h-screen bg-slate-950 text-slate-100">
       {/* Sidebar */}
-      <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-slate-800 bg-slate-950 text-white">
-        <div className="border-b border-slate-800 px-6 py-6">
+      <aside className="fixed inset-y-0 left-0 z-30 flex w-64 flex-col border-r border-white/10 bg-slate-950 text-white">
+        <div className="border-b border-white/10 px-6 py-6">
           <div className="flex items-center gap-3">
+<<<<<<< HEAD
             <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-600 text-xl font-bold">
               K
             </div>
@@ -357,9 +358,18 @@ function AdminLayout() {
             <div>
               <h1 className="text-lg font-bold tracking-tight">
                 Kiosk Manager
+=======
+            <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-tr from-amber-500 to-orange-500 text-xl font-black text-slate-950 shadow-lg shadow-amber-500/25">
+              Q
+            </div>
+
+            <div>
+              <h1 className="text-lg font-black tracking-tight text-white">
+                RVCE Canteen
+>>>>>>> 89d3e54 (Save my local changes)
               </h1>
-              <p className="mt-1 text-xs text-slate-400">
-                Restaurant operations
+              <p className="text-xs font-semibold text-amber-400">
+                Operations Manager
               </p>
             </div>
           </div>
@@ -368,7 +378,7 @@ function AdminLayout() {
         <nav className="flex-1 space-y-7 overflow-y-auto px-4 py-6">
           {["OVERVIEW", "MANAGEMENT", "FINANCE", "MARKETING", "SYSTEM"].map((group) => (
             <div key={group}>
-              <p className="mb-3 px-3 text-[10px] font-bold tracking-[0.18em] text-slate-500">
+              <p className="mb-3 px-3 text-[10px] font-bold tracking-[0.18em] text-slate-400">
                 {group}
               </p>
 
@@ -382,10 +392,10 @@ function AdminLayout() {
                       <button
                         key={item.name}
                         onClick={() => navigate(item.path)}
-                        className={`flex w-full items-center gap-3 rounded-xl  px-3 py-3 text-left text-sm font-medium transition ${
+                        className={`flex w-full items-center gap-3 rounded-xl px-3 py-3 text-left text-sm font-semibold transition ${
                           isActive
-                            ? "bg-violet-600 text-white shadow-lg shadow-violet-950/30"
-                            : "text-slate-400 hover:bg-slate-800 hover:text-white"
+                            ? "bg-gradient-to-r from-amber-500 to-orange-500 text-slate-950 font-black shadow-lg shadow-amber-500/25"
+                            : "text-slate-300 hover:bg-slate-800 hover:text-white"
                         }`}
                       >
                         <span className="flex h-6 w-6 items-center justify-center text-lg">
@@ -395,7 +405,7 @@ function AdminLayout() {
                         <span>{item.name}</span>
 
                         {isActive && (
-                          <span className="ml-auto h-1.5 w-1.5 rounded-full bg-white" />
+                          <span className="ml-auto h-2 w-2 rounded-full bg-slate-950" />
                         )}
                       </button>
                     );
@@ -405,34 +415,34 @@ function AdminLayout() {
           ))}
         </nav>
 
-        <div className="border-t border-slate-800 p-4">
-          <div className="rounded-xl bg-slate-900 p-3">
+        <div className="border-t border-white/10 p-4">
+          <div className="rounded-xl border border-white/10 bg-slate-900 p-3">
             <div className="flex items-center gap-3">
-              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-violet-500/20 text-sm font-bold text-violet-300">
-                {user?.username.slice(0, 1).toUpperCase() ?? "?"}
+              <div className="flex h-9 w-9 items-center justify-center rounded-full bg-amber-500/20 text-sm font-bold text-amber-400 border border-amber-500/30">
+                {user?.username.slice(0, 1).toUpperCase() ?? "A"}
               </div>
 
               <div className="min-w-0">
-              <p className="truncate text-sm font-semibold text-white">
-                {user?.username ?? "Signed in"}
-              </p>
-              <p className="mt-0.5 text-xs text-slate-500">
-                Staff session
-              </p>
-            </div>
+                <p className="truncate text-sm font-bold text-white">
+                  {user?.username ?? "Staff Session"}
+                </p>
+                <p className="mt-0.5 text-xs text-slate-400">
+                  RVCE Canteen Staff
+                </p>
+              </div>
             </div>
             <button
-            type="button"
-            onClick={() => void handleLogout()}
-            disabled={loggingOut}
-            className="mt-3 w-full rounded-lg border border-slate-700 px-3 py-2 text-left text-xs font-medium text-slate-300 hover:bg-slate-800 disabled:opacity-50"
+              type="button"
+              onClick={() => void handleLogout()}
+              disabled={loggingOut}
+              className="mt-3 w-full rounded-lg border border-white/15 bg-slate-800 px-3 py-2 text-left text-xs font-bold text-slate-300 hover:bg-slate-700 hover:text-white disabled:opacity-50"
             >
-            {loggingOut ? "Signing out..." : "Sign out"}
+              {loggingOut ? "Signing out..." : "Sign out"}
             </button>
             {logoutError && (
-            <p role="alert" className="mt-2 text-xs text-rose-300">
-              {logoutError}
-            </p>
+              <p role="alert" className="mt-2 text-xs text-rose-300">
+                {logoutError}
+              </p>
             )}
           </div>
         </div>
@@ -440,33 +450,56 @@ function AdminLayout() {
 
       {/* Main content */}
       <main className="min-h-screen min-w-0 pl-64">
-        <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/95 px-8 py-5 backdrop-blur">
+        <header className="sticky top-0 z-20 border-b border-white/10 bg-slate-900/90 px-8 py-5 backdrop-blur-xl">
           <div className="flex items-center justify-between gap-4">
             <div>
+<<<<<<< HEAD
               <div className="flex items-center gap-2 text-xs text-slate-400">
                 <span>Kiosk Manager</span>
                 <span>/</span>
                 <span className="font-medium text-violet-600">
                   {activePage}
                 </span>
+=======
+              <div className="flex items-center gap-2 text-xs font-bold text-amber-400">
+                <span>RV College of Engineering Canteen</span>
+                <span className="text-slate-500">/</span>
+                <span className="text-slate-300">{activePage}</span>
+>>>>>>> 89d3e54 (Save my local changes)
               </div>
 
-              <h2 className="mt-2 text-2xl font-bold tracking-tight text-slate-900">
+              <h2 className="mt-1 text-2xl font-black tracking-tight text-white">
                 {activePage}
               </h2>
 
-              <p className="mt-1 text-sm text-slate-500">
+              <p className="mt-1 text-xs text-slate-400">
                 {pageDescriptions[activePage]}
               </p>
             </div>
 
-            <div className="hidden items-center gap-3 sm:flex">
-              <div className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-2">
-                <p className="text-xs text-slate-500">Workspace</p>
-                <p className="mt-0.5 text-sm font-semibold text-slate-800">
-                  Admin panel
-                </p>
-              </div>
+            <div className="flex items-center gap-3">
+              <Link
+                to="/menu-voting"
+                className="hidden sm:flex items-center gap-2 rounded-xl border border-emerald-400/50 bg-emerald-950/60 px-3.5 py-2 text-xs font-bold text-emerald-300 hover:bg-emerald-900/70 transition"
+              >
+                <span>🗳️ Tomorrow's Poll</span>
+              </Link>
+              <Link
+                to="/order"
+                target="_blank"
+                rel="noreferrer"
+                className="hidden sm:flex items-center gap-2 rounded-xl border border-amber-400/50 bg-amber-950/60 px-3.5 py-2 text-xs font-bold text-amber-300 hover:bg-amber-900/70 transition"
+              >
+                <span>🍽️ Customer Kiosk ↗</span>
+              </Link>
+              <Link
+                to="/live-display"
+                target="_blank"
+                rel="noreferrer"
+                className="hidden sm:flex items-center gap-2 rounded-xl border border-sky-400/50 bg-sky-950/60 px-3.5 py-2 text-xs font-bold text-sky-300 hover:bg-sky-900/70 transition"
+              >
+                <span>📟 Live Display ↗</span>
+              </Link>
             </div>
           </div>
         </header>
@@ -475,8 +508,13 @@ function AdminLayout() {
           {renderPage()}
         </div>
 
+<<<<<<< HEAD
         <footer className="px-8 pb-6 text-center text-xs text-slate-400">
           Kiosk Manager · Restaurant Management System
+=======
+        <footer className="px-8 pb-6 text-center text-xs text-slate-500">
+          RV College of Engineering Canteen Management System • Bengaluru
+>>>>>>> 89d3e54 (Save my local changes)
         </footer>
       </main>
     </div>
@@ -767,22 +805,72 @@ function Dashboard({ onNavigate }: DashboardProps) {
 
   return (
     <div className="space-y-8">
-      {/* Welcome section */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm sm:p-8">
-        <p className="text-sm font-bold uppercase tracking-wide text-violet-700">Restaurant operations</p>
-        <div className="mt-2 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
+      {/* Welcome Hero Banner with RVCE Canteen branding */}
+      <section className="relative overflow-hidden rounded-3xl border-2 border-amber-500/30 bg-gradient-to-r from-slate-900 via-slate-900 to-amber-950/40 p-6 shadow-2xl backdrop-blur-xl sm:p-8">
+        <div className="flex items-center gap-2">
+          <span className="h-2.5 w-2.5 rounded-full bg-emerald-400 animate-pulse" />
+          <p className="text-xs font-black uppercase tracking-widest text-amber-400">
+            RV College of Engineering • Campus Food Court Operations
+          </p>
+        </div>
+
+        <div className="mt-3 flex flex-col justify-between gap-4 sm:flex-row sm:items-end">
           <div>
-            <h3 className="text-2xl font-bold text-slate-900 sm:text-3xl">Welcome to your workspace</h3>
-            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-500">
-              Monitor restaurant activity and open operational modules from one workspace.
+            <h3 className="text-2xl font-black text-white sm:text-4xl">
+              Canteen Management Dashboard
+            </h3>
+            <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-300">
+              Live orders, kitchen workflow, inventory controls, and student opinions for tomorrow's menu.
             </p>
           </div>
+
+          <div className="flex flex-wrap gap-3">
+            <button
+              type="button"
+              onClick={() => onNavigate("Menu Voting")}
+              className="flex items-center gap-2 rounded-2xl bg-gradient-to-r from-emerald-500 to-teal-500 px-5 py-3 text-sm font-black text-slate-950 shadow-lg shadow-emerald-500/25 transition hover:brightness-110 active:scale-95"
+            >
+              <span>🗳️ Tomorrow's Menu Decisions</span>
+              <span>→</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => onNavigate("POS")}
+              className="flex items-center gap-2 rounded-2xl bg-amber-400 px-5 py-3 text-sm font-black text-slate-950 shadow-lg shadow-amber-400/25 transition hover:brightness-110 active:scale-95"
+            >
+              <span>₹ Open POS Counter</span>
+            </button>
+          </div>
+        </div>
+      </section>
+
+      {/* Flagship: Tomorrow's Menu Student Opinion Card for Admin */}
+      <section className="rounded-3xl border-2 border-emerald-500/40 bg-gradient-to-r from-slate-900 via-emerald-950/20 to-slate-900 p-6 shadow-2xl backdrop-blur-xl">
+        <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+          <div className="flex items-center gap-4">
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-emerald-500/20 text-3xl font-black text-emerald-400 border border-emerald-400/40">
+              🗳️
+            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="rounded-full bg-emerald-400/20 border border-emerald-400/40 px-2.5 py-0.5 text-[10px] font-black uppercase text-emerald-300">
+                  Student Poll
+                </span>
+                <p className="text-xs font-bold text-slate-400">Main Kiosk Theme</p>
+              </div>
+              <h4 className="mt-1 text-2xl font-black text-white">Tomorrow's Menu Decisions</h4>
+              <p className="text-xs text-slate-300">
+                Students are actively voting Like 👍 / Dislike 👎 on candidate dishes for tomorrow.
+              </p>
+            </div>
+          </div>
+
           <button
             type="button"
-            onClick={() => onNavigate("Restaurants")}
-            className="shrink-0 rounded-xl bg-violet-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-violet-700"
+            onClick={() => onNavigate("Menu Voting")}
+            className="rounded-2xl border-2 border-emerald-400 bg-emerald-500 px-6 py-3.5 text-base font-black text-slate-950 shadow-xl shadow-emerald-500/30 hover:brightness-110 transition active:scale-95"
           >
-            Manage restaurants →
+            Review Student Votes & Approve Dishes →
           </button>
         </div>
       </section>
@@ -790,21 +878,21 @@ function Dashboard({ onNavigate }: DashboardProps) {
       <section>
         <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
           <div>
-            <h3 className="text-lg font-bold text-slate-900">
-              Today's business overview
+            <h3 className="text-xl font-black text-white">
+              Today's Live Overview
             </h3>
-            <p className="mt-1 text-sm text-slate-500">
+            <p className="mt-1 text-sm text-slate-400">
               Live order status and business metrics for the selected active restaurant.
             </p>
-            <p className="mt-1 text-xs font-medium text-slate-500" aria-live="polite">
-              {dashboardConnection === "live" ? "Live order updates connected" : dashboardConnection === "polling" ? "Live updates unavailable · refreshing every 30 seconds" : "Connecting to live order updates"}
+            <p className="mt-1 text-xs font-bold text-amber-400" aria-live="polite">
+              ● {dashboardConnection === "live" ? "Live order updates connected" : dashboardConnection === "polling" ? "Live updates polling active" : "Connecting..."}
             </p>
           </div>
           <div className="flex flex-col gap-3 sm:flex-row sm:items-end">
-            <label className="text-sm font-semibold text-slate-700">
-              Restaurant
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-400">
+              Canteen Outlet
               <select
-                className="mt-1 block min-w-56 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm text-slate-700 outline-none focus:border-violet-500"
+                className="mt-1 block min-w-56 rounded-xl border border-white/20 bg-slate-900 px-4 py-3 text-sm font-bold text-white outline-none focus:border-amber-400"
                 value={restaurantId ?? ""}
                 onChange={(event) => {
                   setDashboardLoading(true);
@@ -824,7 +912,7 @@ function Dashboard({ onNavigate }: DashboardProps) {
               type="button"
               onClick={() => void refreshDashboard()}
               disabled={!restaurantId || dashboardLoading}
-              className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-60"
+              className="rounded-xl border border-white/20 bg-slate-800 px-4 py-3 text-sm font-bold text-white hover:bg-slate-700 disabled:opacity-60"
             >
               {dashboardLoading ? "Refreshing…" : "Refresh"}
             </button>
@@ -832,147 +920,190 @@ function Dashboard({ onNavigate }: DashboardProps) {
         </div>
 
         {dashboardError && (
-          <p role="alert" className="mb-4 rounded-xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-800">
+          <p role="alert" className="mb-4 rounded-2xl border border-rose-500 bg-rose-950/80 p-4 text-sm font-bold text-rose-300">
             {dashboardError}
           </p>
         )}
+
         {dashboardLoading ? (
-          <p className="rounded-2xl border border-slate-200 bg-white p-8 text-center text-slate-600">
+          <p className="rounded-3xl border border-white/10 bg-slate-900/80 p-12 text-center text-lg font-bold text-slate-400 backdrop-blur">
             Loading today's dashboard…
           </p>
         ) : restaurants.length === 0 ? (
-          <p className="rounded-2xl border border-dashed border-slate-300 bg-white p-8 text-center text-slate-600">
-            {dashboardError
-              ? "Restaurant access could not be loaded. Retry after checking your connection."
-              : "No active restaurant access is available. Ask an owner to activate a restaurant membership."}
+          <p className="rounded-3xl border border-dashed border-white/20 bg-slate-900/80 p-12 text-center text-slate-400">
+            No active restaurant access is available.
           </p>
-        ) : dashboardError ? (
-          <div className="rounded-2xl border border-dashed border-rose-200 bg-white p-8 text-center text-slate-600">
-            Dashboard data is unavailable. Use Refresh to try again.
-          </div>
         ) : (
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
-          {stats.map((stat) => (
-            <button
-              key={stat.label}
-              type="button"
-              onClick={() => onNavigate(stat.page)}
-              className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md"
-            >
-              <div className="flex items-start justify-between gap-3">
-                <p className="text-sm font-medium text-slate-500">
-                  {stat.label}
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+            {stats.map((stat) => (
+              <button
+                key={stat.label}
+                type="button"
+                onClick={() => onNavigate(stat.page)}
+                className="rounded-3xl border border-white/15 bg-slate-900/90 p-6 text-left shadow-xl backdrop-blur-xl transition hover:border-amber-400 hover:scale-[1.01]"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <p className="text-xs font-bold uppercase tracking-wider text-slate-400">
+                    {stat.label}
+                  </p>
+
+                  <div
+                    className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-slate-800 text-xl font-bold text-amber-400"
+                  >
+                    {stat.icon}
+                  </div>
+                </div>
+
+                <p className="mt-4 text-4xl font-black tracking-tight text-white">
+                  {stat.value}
                 </p>
 
-                <div
-                  className={`flex h-10 w-10 items-center justify-center rounded-xl text-lg font-bold ${stat.color}`}
-                >
-                  {stat.icon}
-                </div>
-              </div>
-
-              <p className="mt-5 text-3xl font-bold tracking-tight text-slate-900">
-                {stat.value}
-              </p>
-
-              <p className="mt-2 text-xs text-slate-500">
-                {stat.description}
-              </p>
-            </button>
-          ))}
-        </div>
+                <p className="mt-2 text-xs text-slate-400">
+                  {stat.description}
+                </p>
+              </button>
+            ))}
+          </div>
         )}
+
         {!dashboardLoading && stats.length > 0 && (
-        <div className="mt-5 grid gap-5 xl:grid-cols-2">
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h4 className="font-bold text-slate-900">Sales · last 7 days</h4>
-            <div
-              role="img"
-              aria-label="Daily sales totals for the last seven days"
-              className="mt-5 flex h-40 items-end justify-around gap-3 border-b border-slate-200 pb-2"
-            >
-              {salesSeries.map((point) => {
-                const highest = Math.max(...salesSeries.map((item) => item.value), 1);
-                const height = Math.max(4, (point.value / highest) * 100);
-                return (
-                  <div key={point.label} className="flex h-full flex-1 flex-col items-center justify-end gap-2">
-                    <div
-                      title={`₹${point.value.toLocaleString("en-IN")}`}
-                      className="w-full max-w-10 rounded-t-md bg-violet-500"
-                      style={{ height: `${height}%` }}
-                    />
-                    <span className="text-xs text-slate-500">{point.label}</span>
-                  </div>
-                );
-              })}
-            </div>
-          </section>
-          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h4 className="font-bold text-slate-900">Orders by status · today</h4>
-            <div className="mt-4 flex flex-wrap gap-2">
-              {Object.entries(statusCounts).map(([orderStatus, count]) => (
-                <span key={orderStatus} className="rounded-full bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700">
-                  {orderStatus.replaceAll("_", " ")}: {count}
-                </span>
-              ))}
-            </div>
-          </section>
-        </div>
+          <div className="mt-6 grid gap-6 xl:grid-cols-2">
+            <section className="rounded-3xl border border-white/15 bg-slate-900/90 p-6 shadow-xl backdrop-blur-xl">
+              <h4 className="text-lg font-black text-white">Sales Revenue · Last 7 Days</h4>
+              <div
+                role="img"
+                aria-label="Daily sales totals for the last seven days"
+                className="mt-6 flex h-44 items-end justify-around gap-3 border-b border-white/10 pb-3"
+              >
+                {salesSeries.map((point) => {
+                  const highest = Math.max(...salesSeries.map((item) => item.value), 1);
+                  const height = Math.max(6, (point.value / highest) * 100);
+                  return (
+                    <div key={point.label} className="flex h-full flex-1 flex-col items-center justify-end gap-2">
+                      <div
+                        title={`₹${point.value.toLocaleString("en-IN")}`}
+                        className="w-full max-w-10 rounded-t-xl bg-gradient-to-t from-amber-600 to-amber-400 shadow-lg shadow-amber-500/20"
+                        style={{ height: `${height}%` }}
+                      />
+                      <span className="text-xs font-bold text-slate-400">{point.label}</span>
+                    </div>
+                  );
+                })}
+              </div>
+            </section>
+
+            <section className="rounded-3xl border border-white/15 bg-slate-900/90 p-6 shadow-xl backdrop-blur-xl">
+              <h4 className="text-lg font-black text-white">Orders by Status · Today</h4>
+              <div className="mt-6 flex flex-wrap gap-2.5">
+                {Object.entries(statusCounts).map(([orderStatus, count]) => (
+                  <span key={orderStatus} className="rounded-2xl border border-white/15 bg-slate-950/80 px-4 py-2.5 text-xs font-bold text-amber-300">
+                    {orderStatus.replaceAll("_", " ")}: <strong className="text-white text-sm">{count}</strong>
+                  </span>
+                ))}
+              </div>
+            </section>
+          </div>
         )}
       </section>
 
-      {/* Quick actions */}
+      {/* Quick Actions Grid */}
       <section>
-        <h3 className="text-lg font-bold text-slate-900">
-          Quick actions
+        <h3 className="text-xl font-black text-white">
+          Operations & Management Modules
         </h3>
-
-        <p className="mt-1 text-sm text-slate-500">
-          Jump to your existing management pages.
+        <p className="mt-1 text-sm text-slate-400">
+          Jump to key canteen control sections.
         </p>
 
-        <div className="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {[
             {
-              title: "Restaurants",
-              description: "Manage restaurant details and locations.",
-              action: "Open restaurants",
-              page: "Restaurants",
-              symbol: "⌂",
+              title: "Tomorrow's Menu Poll",
+              description: "Review student likes/dislikes & approve dishes to cook tomorrow.",
+              action: "Open voting admin",
+              page: "Menu Voting",
+              symbol: "🗳️",
+              highlight: true,
             },
             {
-              title: "Menu management",
-              description: "Maintain items, prices, and availability.",
+              title: "POS Counter Terminal",
+              description: "Rapid counter ordering, bill generation, and token printing.",
+              action: "Open POS",
+              page: "POS",
+              symbol: "₹",
+            },
+            {
+              title: "Kitchen Display (KDS)",
+              description: "Live kitchen order tickets for preparation and status dispatch.",
+              action: "Open kitchen",
+              page: "Kitchen Display",
+              symbol: "🍳",
+            },
+            {
+              title: "Live Token Board",
+              description: "Customer-facing display showing Preparing and Ready tokens.",
+              action: "Open display",
+              page: "Live Display",
+              symbol: "📟",
+            },
+            {
+              title: "Menu Items",
+              description: "Maintain items, prices, descriptions & dish photos.",
               action: "Open menu",
               page: "Menu",
-              symbol: "☷",
+              symbol: "🍲",
             },
             {
-              title: "Categories",
-              description: "Organize items into menu categories.",
+              title: "Menu Categories",
+              description: "Organize items into Breakfast, Lunch, Snacks, etc.",
               action: "Open categories",
               page: "Categories",
-              symbol: "▧",
+              symbol: "📂",
+            },
+            {
+              title: "Inventory & Stock",
+              description: "Monitor ingredient quantities, adjustments, and wastage.",
+              action: "Open inventory",
+              page: "Inventory",
+              symbol: "📦",
+            },
+            {
+              title: "Customer Ratings",
+              description: "Inspect customer dish feedback and star ratings.",
+              action: "Open ratings",
+              page: "Ratings",
+              symbol: "⭐",
+            },
+            {
+              title: "Reports & Analytics",
+              description: "Revenue reports, sales breakdown, and export CSV.",
+              action: "Open reports",
+              page: "Reports",
+              symbol: "📊",
             },
           ].map((item) => (
             <button
               key={item.page}
               onClick={() => onNavigate(item.page)}
-              className="rounded-2xl border border-slate-200 bg-white p-5 text-left shadow-sm transition hover:border-violet-300 hover:shadow-md"
+              className={`rounded-3xl border p-6 text-left shadow-xl transition-all duration-200 hover:-translate-y-1 ${
+                item.highlight
+                  ? "border-emerald-400/80 bg-gradient-to-b from-slate-900 to-emerald-950/30 hover:border-emerald-400 shadow-[0_10px_30px_rgba(16,185,129,0.2)]"
+                  : "border-white/15 bg-slate-900/90 hover:border-amber-400"
+              }`}
             >
-              <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-50 text-xl text-violet-700">
+              <span className="flex h-12 w-12 items-center justify-center rounded-2xl bg-slate-800 text-2xl text-amber-400 border border-white/10">
                 {item.symbol}
               </span>
 
-              <h4 className="mt-4 font-bold text-slate-900">
+              <h4 className="mt-4 text-xl font-black text-white">
                 {item.title}
               </h4>
 
-              <p className="mt-2 min-h-10 text-sm leading-5 text-slate-500">
+              <p className="mt-1.5 min-h-10 text-xs font-medium leading-relaxed text-slate-300">
                 {item.description}
               </p>
 
-              <span className="mt-4 inline-block text-sm font-semibold text-violet-700">
+              <span className="mt-4 inline-block text-xs font-black uppercase tracking-wider text-amber-400">
                 {item.action} →
               </span>
             </button>
@@ -980,38 +1111,38 @@ function Dashboard({ onNavigate }: DashboardProps) {
         </div>
       </section>
 
-      {/* Orders placeholder */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm">
-        <div className="flex flex-wrap items-center justify-between gap-3">
+      {/* Recent Orders Section */}
+      <section className="rounded-3xl border border-white/15 bg-slate-900/90 p-6 shadow-xl backdrop-blur-xl">
+        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-white/10 pb-4">
           <div>
-            <h3 className="font-bold text-slate-900">Recent orders</h3>
-            <p className="mt-1 text-sm text-slate-500">
-              Most recently created orders for the selected restaurant.
+            <h3 className="text-xl font-black text-white">Recent Orders</h3>
+            <p className="mt-1 text-xs text-slate-400">
+              Live orders placed through customer kiosk, online, or POS.
             </p>
           </div>
 
           <button
             onClick={() => onNavigate("Orders")}
-            className="rounded-xl border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700 transition hover:bg-slate-50"
+            className="rounded-xl border border-white/20 bg-slate-800 px-4 py-2 text-xs font-bold text-white transition hover:bg-slate-700"
           >
-            View orders →
+            View all orders →
           </button>
         </div>
 
         {dashboardLoading ? (
-          <p className="mt-5 py-6 text-center text-sm text-slate-500">Loading orders…</p>
+          <p className="mt-5 py-6 text-center text-sm text-slate-400">Loading orders…</p>
         ) : recentOrders.length === 0 ? (
-          <p className="mt-5 rounded-xl border border-dashed border-slate-200 bg-slate-50 px-5 py-10 text-center text-sm text-slate-500">
-            No orders have been placed for this restaurant yet.
+          <p className="mt-5 rounded-2xl border border-dashed border-white/15 bg-slate-950/50 px-5 py-10 text-center text-sm text-slate-400">
+            No orders have been placed for this canteen yet.
           </p>
         ) : (
-          <ul className="mt-5 divide-y divide-slate-100">
+          <ul className="mt-5 divide-y divide-white/5">
             {recentOrders.map((order) => (
-              <li key={order.id} className="flex flex-wrap items-center justify-between gap-3 py-3">
-                <span className="font-semibold">#{order.order_number.slice(0, 8).toUpperCase()}</span>
-                <span className="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold">{order.status}</span>
-                <span className="text-sm text-slate-600">₹{Number(order.total_amount).toFixed(2)}</span>
-                <time className="text-xs text-slate-500">{new Date(order.created_at).toLocaleTimeString()}</time>
+              <li key={order.id} className="flex flex-wrap items-center justify-between gap-3 py-3.5">
+                <span className="font-mono font-black text-amber-400">#{order.order_number.slice(0, 8).toUpperCase()}</span>
+                <span className="rounded-full bg-slate-800 px-3 py-1 text-xs font-bold text-slate-200 border border-white/10">{order.status}</span>
+                <span className="font-bold text-white">₹{Number(order.total_amount).toFixed(2)}</span>
+                <time className="text-xs text-slate-400">{new Date(order.created_at).toLocaleTimeString()}</time>
               </li>
             ))}
           </ul>

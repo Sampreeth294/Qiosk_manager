@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
+import { Link } from "react-router-dom";
 import { apiRequest } from "../api/apiClient";
 
 type Restaurant = { id: number; name: string };
@@ -173,40 +174,51 @@ export default function LiveOrderDisplay() {
     polling: "Automatic refresh active",
   };
   const statusLabels: Record<DisplayOrder["status"], string> = {
-    CONFIRMED: "Confirmed",
-    PREPARING: "Preparing",
-    READY: "Ready for pickup",
+    CONFIRMED: "⏳ Confirmed",
+    PREPARING: "🍳 Preparing in Kitchen",
+    READY: "✅ Ready for Pickup",
   };
   const statusColors: Record<DisplayOrder["status"], string> = {
-    CONFIRMED: "border-indigo-400 bg-indigo-950",
-    PREPARING: "border-sky-400 bg-sky-950",
-    READY: "border-emerald-400 bg-emerald-950",
+    CONFIRMED: "border-2 border-indigo-400/70 bg-slate-900/90 shadow-lg text-indigo-300",
+    PREPARING: "border-2 border-amber-400 bg-amber-950/80 shadow-[0_0_30px_rgba(251,191,36,0.3)] text-amber-300",
+    READY: "border-4 border-emerald-400 bg-emerald-950/95 shadow-[0_0_40px_rgba(52,211,153,0.5)] text-emerald-300 kiosk-token-glow",
   };
 
   return (
-    <main className="min-h-screen bg-slate-950 p-4 text-white sm:p-8">
-      <header className="flex flex-col justify-between gap-5 border-b border-slate-800 pb-6 sm:flex-row sm:items-end">
+    <main className="min-h-screen bg-canteen-order p-4 text-white sm:p-8 backdrop-blur-xl">
+      <header className="flex flex-col justify-between gap-5 border-b border-amber-500/20 bg-slate-950/80 p-6 rounded-3xl shadow-2xl backdrop-blur-xl sm:flex-row sm:items-end">
         <div>
-          <p className="text-sm font-bold uppercase tracking-[0.2em] text-violet-300">
-            Order status
+          <div className="flex items-center gap-3">
+            <Link
+              to="/order"
+              className="flex h-12 w-12 items-center justify-center rounded-2xl bg-amber-400 text-slate-950 font-black text-xl hover:scale-105 transition"
+              title="Return to Order Screen"
+            >
+              ←
+            </Link>
+            <div>
+              <p className="text-xs font-black uppercase tracking-[0.25em] text-amber-300">
+                RV College of Engineering Canteen • Pickup Counter
+              </p>
+              <h1 className="mt-1 text-3xl font-black sm:text-5xl text-white">
+                {restaurantName || "Live Order Token Display"}
+              </h1>
+            </div>
+          </div>
+          <p className="mt-2 text-slate-300 text-base">
+            Watch your counter token number below. When it appears in <strong>Ready for Pickup</strong>, collect it at the counter.
           </p>
-          <h1 className="mt-2 text-3xl font-black sm:text-5xl">
-            {restaurantName || "Live Order Display"}
-          </h1>
-          <p className="mt-2 text-slate-300">
-            Follow your public order number to see when it is ready.
-          </p>
-          <p className="mt-2 text-sm font-medium text-slate-300" aria-live="polite">
-            {connectionLabel[connection]}
+          <p className="mt-2 text-sm font-bold text-amber-300" aria-live="polite">
+            ● {connectionLabel[connection]}
           </p>
         </div>
         <div className="flex flex-col gap-3 sm:items-end">
           <label className="text-xs font-semibold uppercase tracking-wide text-slate-400" htmlFor="display-restaurant">
-            Restaurant
+            Canteen Outlet
           </label>
           <select
             id="display-restaurant"
-            className="min-w-60 rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-white outline-none focus:border-violet-400 focus:ring-2 focus:ring-violet-500/30"
+            className="min-w-60 rounded-xl border border-amber-400/40 bg-slate-900 px-4 py-3 text-white font-bold outline-none focus:border-amber-400 focus:ring-2 focus:ring-amber-400/30"
             value={restaurantId ?? ""}
             onChange={(event) => {
               setLoading(true);
@@ -220,8 +232,8 @@ export default function LiveOrderDisplay() {
               </option>
             ))}
           </select>
-          <p className="text-xl font-bold tabular-nums">
-            {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })}
+          <p className="text-3xl font-mono font-black tabular-nums text-amber-400">
+            {now.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}
           </p>
         </div>
       </header>

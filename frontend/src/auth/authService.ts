@@ -17,11 +17,20 @@ function getCsrfCookie(): string {
     .split("; ")
     .find((entry) => entry.startsWith("csrftoken="));
 
-  if (!cookie) {
-    throw new Error("Unable to read the CSRF cookie. Please try again.");
+  if (cookie) {
+    return decodeURIComponent(cookie.slice("csrftoken=".length));
   }
 
-  return decodeURIComponent(cookie.slice("csrftoken=".length));
+  const fallback = document.cookie
+    .split(";")
+    .map((entry) => entry.trim())
+    .find((entry) => entry.startsWith("csrftoken="));
+
+  if (fallback) {
+    return decodeURIComponent(fallback.slice("csrftoken=".length));
+  }
+
+  throw new Error("Unable to read the CSRF cookie. Please try again.");
 }
 
 async function readError(response: Response): Promise<string> {

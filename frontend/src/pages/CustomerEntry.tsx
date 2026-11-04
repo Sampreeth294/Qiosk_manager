@@ -2,20 +2,14 @@ import { Link } from "react-router-dom";
 
 export default function CustomerEntry() {
   return (
-    <main className="relative isolate flex min-h-screen items-center overflow-hidden bg-gradient-to-br from-indigo-700 to-violet-600 px-4 py-8 text-white sm:px-6 lg:py-12">
+    <main className="relative isolate flex min-h-screen items-center justify-center overflow-x-hidden bg-canteen-home px-4 py-8 text-white sm:px-8 lg:py-16">
+      {/* Ambient background glow & radial gradient */}
       <div
         aria-hidden="true"
-        className="absolute inset-0 -z-20 bg-[radial-gradient(ellipse_at_82%_42%,rgba(255,255,255,0.22),transparent_35%),radial-gradient(ellipse_at_0%_100%,rgba(49,46,129,0.38),transparent_48%)]"
-      />
-      <div
-        aria-hidden="true"
-        className="absolute inset-y-0 right-[13%] -z-10 hidden w-[20%] border-x border-white/10 opacity-50 [background-image:repeating-linear-gradient(90deg,transparent_0,transparent_15px,rgba(255,255,255,0.12)_16px,transparent_20px)] lg:block"
-      />
-      <div
-        aria-hidden="true"
-        className="absolute -right-32 top-1/4 -z-10 hidden h-[34rem] w-[34rem] rounded-full bg-fuchsia-400/20 blur-3xl lg:block"
+        className="pointer-events-none absolute inset-0 -z-10 bg-[radial-gradient(ellipse_at_50%_0%,rgba(245,158,11,0.25),transparent_65%),radial-gradient(ellipse_at_80%_80%,rgba(16,185,129,0.2),transparent_60%)]"
       />
 
+<<<<<<< HEAD
       <div className="mx-auto grid w-full max-w-6xl items-center gap-12 lg:grid-cols-[1.05fr_0.95fr] lg:gap-16">
         <div className="relative z-10">
           <header className="mb-9">
@@ -45,74 +39,74 @@ export default function CustomerEntry() {
               feedback when you’re done.
             </p>
           </header>
+=======
+      <div className="mx-auto w-full max-w-6xl">
+        {/* Brand & Kiosk Welcome Header - High Visibility from 10ft */}
+        <header className="mb-10 text-center">
+          <div className="inline-flex items-center gap-3 rounded-full border border-amber-400/40 bg-slate-900/80 px-5 py-2.5 shadow-2xl backdrop-blur-md">
+            <span className="flex h-9 w-9 items-center justify-center rounded-full bg-gradient-to-tr from-amber-500 to-orange-500 text-lg font-black text-slate-950 shadow-md">
+              Q
+            </span>
+            <span className="text-sm font-extrabold uppercase tracking-[0.25em] text-amber-300">
+              RV College of Engineering Canteen • Touch Kiosk
+            </span>
+          </div>
+>>>>>>> 89d3e54 (Save my local changes)
 
-          <section aria-label="Customer options" className="grid gap-4 sm:grid-cols-2">
-          <Link
-            to="/order"
-            aria-label="Open the customer ordering page"
-            className="entry-from-left entry-delay-5 group flex min-h-52 cursor-pointer flex-col justify-between rounded-2xl border border-white/60 bg-white p-6 text-slate-950 shadow-[0_20px_60px_-24px_rgba(30,27,75,0.65)] transition duration-300 hover:-translate-y-2 hover:scale-[1.02] hover:shadow-[0_28px_70px_-24px_rgba(30,27,75,0.8)] focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:p-7"
-          >
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-violet-700 text-2xl font-bold text-white">
-              +
-            </span>
-            <span>
-              <span className="block text-xl font-bold">Order Food</span>
-              <span className="mt-2 block text-sm leading-6 text-slate-700">
-                Browse the menu and start your order.
-              </span>
-              <span className="mt-4 inline-block text-sm font-bold text-violet-700 transition group-hover:translate-x-1 group-hover:underline">
-                Explore the menu →
-              </span>
-            </span>
-          </Link>
+          <h1 className="kiosk-title-shadow mt-6 text-4xl font-black tracking-tight text-white sm:text-6xl lg:text-7xl">
+            Welcome to <span className="bg-gradient-to-r from-amber-400 via-orange-300 to-yellow-400 bg-clip-text text-transparent">RVCE Canteen</span>
+          </h1>
+          <p className="kiosk-text-shadow mx-auto mt-4 max-w-2xl text-xl font-medium text-slate-200 sm:text-2xl">
+            Vote for tomorrow's special dishes, order your favorites, and track counter tokens live.
+          </p>
+        </header>
 
-          <Link
-            to="/food-ratings"
-            className="entry-from-right entry-delay-6 group flex min-h-52 cursor-pointer flex-col justify-between rounded-2xl border border-white/30 bg-white/10 p-6 text-white shadow-lg shadow-indigo-950/20 backdrop-blur-md transition duration-300 hover:-translate-y-2 hover:scale-[1.02] hover:bg-white/20 hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:p-7"
-          >
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/15 text-2xl font-bold text-white">
-              ★
-            </span>
-            <span>
-              <span className="block text-xl font-bold">Rate Your Food</span>
-              <span className="mt-2 block text-sm leading-6 text-indigo-100">
-                Already ordered? Tell us what you thought.
-              </span>
-              <span className="mt-4 inline-block text-sm font-bold text-white transition group-hover:translate-x-1 group-hover:underline">
-                Share your feedback →
-              </span>
-            </span>
-          </Link>
-
+        {/* 10-Foot Distance Optimized Action Cards - Featuring Tomorrow's Menu Voting as Primary */}
+        <section aria-label="Kiosk customer options" className="grid gap-6 sm:grid-cols-2 lg:grid-cols-2">
+          {/* FLAGSHIP HERO 1: Tomorrow's Menu Voting (Like / Dislike) */}
           <Link
             to="/menu-voting"
-            className="entry-from-left entry-delay-7 group flex min-h-52 cursor-pointer flex-col justify-between rounded-2xl border border-white/30 bg-white/10 p-6 text-white shadow-lg shadow-indigo-950/20 backdrop-blur-md transition duration-300 hover:-translate-y-2 hover:scale-[1.02] hover:bg-white/20 hover:shadow-xl focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white sm:p-7"
+            aria-label="Vote Like or Dislike for Tomorrow's Menu"
+            className="group relative flex min-h-80 cursor-pointer flex-col justify-between overflow-hidden rounded-3xl border-2 border-emerald-400/80 bg-gradient-to-b from-slate-900/90 via-slate-900/95 to-emerald-950/40 p-8 shadow-[0_20px_50px_rgba(0,0,0,0.7)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-2 hover:border-emerald-400 hover:shadow-[0_25px_60px_rgba(16,185,129,0.35)] focus-visible:outline focus-visible:outline-4 focus-visible:outline-emerald-400"
           >
-            <span className="flex h-11 w-11 items-center justify-center rounded-xl bg-white/15 text-2xl font-bold text-white">
-              ☑
-            </span>
-            <span>
-              <span className="block text-xl font-bold">Menu Voting</span>
-              <span className="mt-2 block text-sm leading-6 text-indigo-100">
-                Help choose what goes on tomorrow’s menu.
-              </span>
-              <span className="mt-4 inline-block text-sm font-bold text-white transition group-hover:translate-x-1 group-hover:underline">
-                Cast your vote →
-              </span>
-            </span>
-          </Link>
-          </section>
+            <div className="absolute -right-8 -top-8 h-44 w-44 rounded-full bg-emerald-500/15 blur-3xl transition-all group-hover:bg-emerald-500/30" />
 
-          <footer className="mt-7">
+            <div className="flex items-center justify-between">
+              <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-emerald-500 to-teal-500 text-3xl font-black text-slate-950 shadow-lg shadow-emerald-500/30">
+                🗳️
+              </span>
+              <span className="rounded-full border border-emerald-400/50 bg-emerald-400/20 px-4 py-1.5 text-xs font-black uppercase tracking-wider text-emerald-300 animate-pulse">
+                ★ Core Kiosk Theme
+              </span>
+            </div>
+
+            <div className="mt-8">
+              <div className="flex items-center gap-2">
+                <span className="text-2xl">👍</span>
+                <span className="text-2xl">👎</span>
+                <h2 className="text-3xl font-black text-white sm:text-4xl">
+                  Tomorrow's Menu Poll
+                </h2>
+              </div>
+              <p className="mt-2 text-lg font-medium text-slate-300">
+                Vote <strong className="text-emerald-400">Like 👍</strong> or <strong className="text-rose-400">Dislike 👎</strong> on candidate dishes. The canteen prepares what students vote for!
+              </p>
+              <div className="mt-6 flex items-center gap-3 text-lg font-bold text-emerald-400 transition-all group-hover:translate-x-2">
+                <span>Cast Your Vote for Tomorrow</span>
+                <span className="text-2xl">→</span>
+              </div>
+            </div>
+          </Link>
+
+          {/* FLAGSHIP HERO 2: Order Food Now */}
           <Link
-            to="/admin/login"
-            className="entry-from-left entry-delay-7 inline-block text-sm font-medium text-indigo-100 underline-offset-4 transition hover:translate-x-1 hover:text-white hover:underline focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-4 focus-visible:outline-white"
+            to="/order"
+            aria-label="Start ordering food"
+            className="group relative flex min-h-80 cursor-pointer flex-col justify-between overflow-hidden rounded-3xl border-2 border-amber-400/80 bg-gradient-to-b from-slate-900/90 via-slate-900/95 to-amber-950/40 p-8 shadow-[0_20px_50px_rgba(0,0,0,0.7)] backdrop-blur-xl transition-all duration-300 hover:-translate-y-2 hover:border-amber-400 hover:shadow-[0_25px_60px_rgba(245,158,11,0.35)] focus-visible:outline focus-visible:outline-4 focus-visible:outline-amber-400"
           >
-            Admin sign in
-          </Link>
-          </footer>
-        </div>
+            <div className="absolute -right-8 -top-8 h-44 w-44 rounded-full bg-amber-500/15 blur-3xl transition-all group-hover:bg-amber-500/30" />
 
+<<<<<<< HEAD
         <div aria-hidden="true" className="entry-from-right entry-delay-4 relative mx-auto hidden h-[32rem] w-full max-w-md [perspective:1100px] md:block">
           <div className="absolute bottom-8 left-0 right-0 h-24 rounded-[50%] bg-indigo-950/35 blur-2xl" />
           <div className="kiosk-float absolute bottom-16 left-1/2 h-[27rem] w-64 -translate-x-1/2 [transform:rotateY(-12deg)_rotateX(2deg)] [transform-style:preserve-3d]">
@@ -134,16 +128,99 @@ export default function CustomerEntry() {
                   <div className="h-9 rounded-lg bg-violet-700 shadow-md shadow-violet-700/25" />
                 </div>
                 <div className="mx-auto mt-5 h-2 w-14 rounded-full bg-violet-200" />
+=======
+            <div className="flex items-center justify-between">
+              <span className="flex h-16 w-16 items-center justify-center rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-3xl font-black text-slate-950 shadow-lg shadow-amber-500/30">
+                🍽️
+              </span>
+              <span className="rounded-full border border-amber-400/40 bg-amber-400/20 px-4 py-1.5 text-xs font-black uppercase tracking-wider text-amber-300">
+                Today's Menu
+              </span>
+            </div>
+
+            <div className="mt-8">
+              <h2 className="text-3xl font-black text-white sm:text-4xl">
+                Order Food Now
+              </h2>
+              <p className="mt-2 text-lg font-medium text-slate-300">
+                Touch to browse today's menu, use voice search 🎤, and checkout with UPI QR.
+              </p>
+              <div className="mt-6 flex items-center gap-3 text-lg font-bold text-amber-400 transition-all group-hover:translate-x-2">
+                <span>Explore Menu & Order</span>
+                <span className="text-2xl">→</span>
+>>>>>>> 89d3e54 (Save my local changes)
               </div>
             </div>
+          </Link>
+
+          {/* SECONDARY CARD 1: Live Order Token Display */}
+          <Link
+            to="/live-display"
+            aria-label="View live order tokens status"
+            className="group relative flex min-h-64 cursor-pointer flex-col justify-between rounded-3xl border border-white/20 bg-slate-900/85 p-8 shadow-xl backdrop-blur-xl transition-all duration-300 hover:-translate-y-2 hover:border-sky-400/70 hover:shadow-[0_20px_50px_rgba(56,189,248,0.25)] focus-visible:outline focus-visible:outline-4 focus-visible:outline-sky-400"
+          >
+            <div className="flex items-center justify-between">
+              <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-sky-500/20 text-2xl font-bold text-sky-400 border border-sky-500/30">
+                📟
+              </span>
+              <span className="flex h-3 w-3 rounded-full bg-sky-400 shadow-[0_0_12px_#38bdf8] animate-pulse" />
             </div>
+
+            <div className="mt-6">
+              <h2 className="text-2xl font-black text-white">
+                Live Token Display
+              </h2>
+              <p className="mt-2 text-base text-slate-300">
+                Check whether your counter token is preparing or ready for pickup.
+              </p>
+              <div className="mt-4 flex items-center gap-2 text-base font-bold text-sky-400 transition group-hover:translate-x-1">
+                <span>View Status</span>
+                <span>→</span>
+              </div>
+            </div>
+          </Link>
+
+          {/* SECONDARY CARD 2: Rate Your Food & Feedback */}
+          <Link
+            to="/food-ratings"
+            aria-label="Rate your food and leave feedback"
+            className="group relative flex min-h-64 cursor-pointer flex-col justify-between rounded-3xl border border-white/20 bg-slate-900/85 p-8 shadow-xl backdrop-blur-xl transition-all duration-300 hover:-translate-y-2 hover:border-yellow-400/70 hover:shadow-[0_20px_50px_rgba(250,204,21,0.25)] focus-visible:outline focus-visible:outline-4 focus-visible:outline-yellow-400"
+          >
+            <span className="flex h-14 w-14 items-center justify-center rounded-2xl bg-yellow-500/20 text-2xl font-bold text-yellow-400 border border-yellow-500/30">
+              ⭐
+            </span>
+
+            <div className="mt-6">
+              <h2 className="text-2xl font-black text-white">
+                Rate Food & Feedback
+              </h2>
+              <p className="mt-2 text-base text-slate-300">
+                Already collected your order? Share your rating and tell us how the food tasted!
+              </p>
+              <div className="mt-4 flex items-center gap-2 text-base font-bold text-yellow-400 transition group-hover:translate-x-1">
+                <span>Leave Feedback</span>
+                <span>→</span>
+              </div>
+            </div>
+          </Link>
+        </section>
+
+        {/* Footer: Admin Management Link */}
+        <footer className="mt-10 flex flex-wrap items-center justify-between gap-4 rounded-2xl border border-white/10 bg-slate-950/60 px-6 py-4 backdrop-blur-md">
+          <p className="text-sm font-semibold text-slate-300">
+            RV College of Engineering Canteen Automation • Mysore Road, Bengaluru
+          </p>
+
+          <div className="flex items-center gap-3 text-sm">
+            <span className="text-slate-400">Staff / Counter Management:</span>
+            <Link
+              to="/admin/login"
+              className="rounded-xl border border-amber-400/40 bg-slate-800/90 px-4 py-2 font-bold text-amber-400 shadow transition hover:bg-slate-700 hover:text-amber-300"
+            >
+              Admin Sign In →
+            </Link>
           </div>
-          <div className="absolute bottom-10 left-1/2 h-12 w-40 -translate-x-1/2 [transform:rotateX(-8deg)] rounded-b-2xl border-x border-b border-white/80 bg-gradient-to-r from-indigo-700 via-violet-400 to-violet-800 shadow-[0_16px_25px_rgba(49,46,129,0.55)]" />
-          <div className="absolute bottom-4 left-1/2 h-8 w-64 -translate-x-1/2 [transform:rotateX(12deg)] rounded-[50%] border-t border-white/70 bg-gradient-to-b from-violet-300 via-violet-700 to-indigo-950 shadow-2xl" />
-          <div className="absolute right-0 top-16 rounded-full border border-white/30 bg-white/90 px-4 py-2 text-xs font-semibold tracking-wide text-violet-800 shadow-lg shadow-indigo-950/20 backdrop-blur">
-            Freshly made. Just for you.
-          </div>
-        </div>
+        </footer>
       </div>
     </main>
   );

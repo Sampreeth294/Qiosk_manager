@@ -51,26 +51,35 @@ export default function AdminLogin() {
   }
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-slate-50 px-4 py-10">
-      <section className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-7 shadow-sm sm:p-9">
-        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-violet-600 text-xl font-bold text-white">
-          Q
+    <main className="flex min-h-screen items-center justify-center bg-canteen-login px-4 py-10 text-white">
+      <section className="w-full max-w-md rounded-3xl border-2 border-white/20 bg-slate-950/85 p-8 shadow-2xl backdrop-blur-2xl sm:p-10">
+        <div className="flex items-center justify-between">
+          <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-gradient-to-tr from-amber-500 to-orange-500 text-2xl font-black text-slate-950 shadow-lg shadow-amber-500/25">
+            Q
+          </div>
+          <Link
+            to="/"
+            className="text-xs font-bold text-amber-400 hover:underline"
+          >
+            ← Back to Kiosk
+          </Link>
         </div>
-        <p className="mt-6 text-sm font-medium text-violet-700">
-          RESTAURANT OPERATIONS
+
+        <p className="mt-6 text-xs font-black uppercase tracking-widest text-amber-400">
+          RV COLLEGE OF ENGINEERING CANTEEN OPERATIONS
         </p>
-        <h1 className="mt-2 text-2xl font-bold text-slate-900">
-          Admin sign in
+        <h1 className="mt-1 text-3xl font-black text-white">
+          Admin Sign In
         </h1>
-        <p className="mt-2 text-sm text-slate-500">
-          Sign in with your staff account to access the management workspace.
+        <p className="mt-2 text-sm text-slate-300">
+          Sign in with your staff account to access POS, kitchen display, inventory, and reports.
         </p>
 
-        <form onSubmit={handleSubmit} className="mt-7 space-y-5">
+        <form onSubmit={handleSubmit} className="mt-8 space-y-5">
           <div>
             <label
               htmlFor="username"
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-bold text-slate-200"
             >
               Username
             </label>
@@ -81,14 +90,14 @@ export default function AdminLogin() {
               required
               value={username}
               onChange={(event) => setUsername(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
+              className="mt-2 w-full rounded-2xl border-2 border-white/20 bg-slate-900/90 px-4 py-3.5 text-base font-bold text-white outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-400/20"
             />
           </div>
 
           <div>
             <label
               htmlFor="password"
-              className="text-sm font-medium text-slate-700"
+              className="text-sm font-bold text-slate-200"
             >
               Password
             </label>
@@ -100,14 +109,14 @@ export default function AdminLogin() {
               required
               value={password}
               onChange={(event) => setPassword(event.target.value)}
-              className="mt-2 w-full rounded-xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-violet-500 focus:ring-2 focus:ring-violet-100"
+              className="mt-2 w-full rounded-2xl border-2 border-white/20 bg-slate-900/90 px-4 py-3.5 text-base font-bold text-white outline-none focus:border-amber-400 focus:ring-4 focus:ring-amber-400/20"
             />
           </div>
 
           {error && (
             <p
               role="alert"
-              className="rounded-xl border border-rose-200 bg-rose-50 p-3 text-sm text-rose-700"
+              className="rounded-2xl border border-rose-500 bg-rose-950/80 p-4 text-sm font-bold text-rose-300"
             >
               {error}
             </p>
@@ -116,29 +125,34 @@ export default function AdminLogin() {
           <button
             type="submit"
             disabled={submitting}
-            className="w-full rounded-xl bg-violet-600 px-5 py-3.5 text-sm font-semibold text-white transition hover:bg-violet-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-2xl bg-gradient-to-r from-amber-500 via-amber-400 to-orange-500 py-4 text-lg font-black text-slate-950 shadow-xl shadow-amber-500/25 transition hover:brightness-110 active:scale-95 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            {submitting ? "Signing in..." : "Sign in"}
+            {submitting ? "Signing in..." : "Sign in to Dashboard →"}
           </button>
         </form>
 
-        <div className="mt-4 flex flex-wrap justify-between gap-3 text-sm">
-          <Link to="/admin/password-reset" className="font-semibold text-violet-700 hover:underline">
+        <div className="mt-6 flex flex-wrap justify-between gap-3 text-sm">
+          <Link to="/admin/password-reset" className="font-bold text-amber-400 hover:underline">
             Forgot password?
           </Link>
+<<<<<<< HEAD
           <Link to="/admin/setup" className="font-semibold text-violet-700 hover:underline">
             Create an owner account
+=======
+          <Link to="/admin/setup" className="font-bold text-amber-400 hover:underline">
+            Initial setup
+>>>>>>> 89d3e54 (Save my local changes)
           </Link>
         </div>
 
-        <p className="mt-6 text-center text-xs text-slate-500">
+        <p className="mt-8 text-center text-xs text-slate-400 border-t border-white/10 pt-4">
           Customer?{" "}
-          <a
-            href="/order"
-            className="font-semibold text-violet-700 hover:underline"
+          <Link
+            to="/order"
+            className="font-bold text-amber-300 hover:underline"
           >
-            Browse and order as a guest
-          </a>
+            Go to Customer Kiosk Ordering
+          </Link>
         </p>
       </section>
     </main>
